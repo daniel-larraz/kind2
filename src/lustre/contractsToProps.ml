@@ -68,6 +68,9 @@ let rec collect_contracts (locals, asserts, props) = function
         blah_opt "Assumption" name pos, Ast.Assert (dummy_pos, expr)
       ) :: asserts, props
 
+    | Ast.WeaklyAssume _ ->
+      locals, asserts, props
+
     | Ast.Guarantee (pos, name, expr) ->
       locals, asserts, (blah_opt "Guarantee" name pos, [], expr) :: props
 

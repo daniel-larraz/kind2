@@ -121,6 +121,7 @@ let merge_branches transitions =
 %token IMPORTCONTRACT
 (* %token IMPORTMODE *)
 %token ASSUME
+%token WEAKLY_ASSUME
 %token GUARANTEE
 %token MODE
 %token REQUIRE
@@ -417,8 +418,10 @@ contract_ghost_const:
     { A.GhostConst (A.UntypedConst (mk_pos $startpos, i, e)) }
 
 contract_assume:
-  ASSUME; name = option(STRING); e = qexpr; SEMICOLON
-  { A.Assume (mk_pos $startpos, name, e) }
+    ASSUME; name = option(STRING); e = qexpr; SEMICOLON
+    { A.Assume (mk_pos $startpos, name, e) }
+  | WEAKLY_ASSUME; name = option(STRING); e = qexpr; SEMICOLON
+    { A.WeaklyAssume (mk_pos $startpos, name, e) }
 
 contract_guarantee:
   GUARANTEE; name = option(STRING); e = qexpr; SEMICOLON

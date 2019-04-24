@@ -1,6 +1,6 @@
 (* This file is part of the Kind 2 model checker.
 
-   Copyright (c) 2015 by the Board of Trustees of the University of Iowa
+   Copyright (c) 2015-2019 by the Board of Trustees of the University of Iowa
 
    Licensed under the Apache License, Version 2.0 (the "License"); you
    may not use this file except in compliance with the License.  You
@@ -530,8 +530,7 @@ module RunInvPrint: PostAnalysis = struct
     )
 end
 
-(** Invariant log.
-Certifies the last proof. *)
+(** Certifies the last proof. *)
 module RunCertif: PostAnalysis = struct
   let name = "certification"
   let title = name
@@ -551,6 +550,58 @@ module RunCertif: PostAnalysis = struct
     )
 end
 
+module RunWeakAssumptionMax: PostAnalysis = struct
+  let name = "wamax"
+  let title = "weak assumption maximization"
+  let is_active () = Flags.max_weak_assumptions ()
+  let run in_sys param _ results =
+    let top = (Analysis.info_of_param param).Analysis.top in
+    last_result results top
+    |> Res.chain (fun { Analysis.sys } ->
+      (* Check all properties are valid. *)
+      match TSys.get_split_properties sys with
+      | [], [], [] -> Err (
+        fun fmt ->
+          Format.fprintf fmt
+            "No properties, weak assumption maximization disabled."
+      )
+      | _, [], _ -> Err (
+        fun fmt ->
+          Format.fprintf fmt
+            "No invalid properties, weak assumption maximization disabled."
+      )
+      | _, invalid, _ ->  (
+        let scope = TSys.scope_of_trans_sys sys in
+        match ISys.get_lustre_node in_sys scope with
+        | None -> Err (
+          fun fmt ->
+            Format.fprintf fmt
+              "No lustre input, weak assumption maximization disabled."
+        )
+        | Some { LustreNode.contract = Some { LustreContract.weak_assumes } }
+            when weak_assumes != [] ->
+        (
+          Ok (sys, invalid, weak_assumes)
+        )
+        | Some _ -> Err (
+          fun fmt ->
+            Format.fprintf fmt
+              "No weak assumptions, weak assumption maximization disabled."
+        )
+      )
+    )
+    |> Res.chain (fun (sys, invalid, weak_assumes) ->
+      try (
+        WeakAssumpMax.disprove_maximizing in_sys param sys invalid weak_assumes; Ok ()
+      )
+      with e -> Err (
+        fun fmt ->
+          Format.fprintf fmt "Could not perform weak assumption maximization:@ %s"
+            (Printexc.to_string e)
+      )
+    )
+end
+
 (** List of post-analysis modules. *)
 let post_analysis = [
   (module RunTestGen: PostAnalysis) ;
@@ -559,6 +610,7 @@ let post_analysis = [
   (module RunInvLog: PostAnalysis) ;
   (module RunInvPrint: PostAnalysis) ;
   (module RunCertif: PostAnalysis) ;
+  (module RunWeakAssumptionMax: PostAnalysis) ;
 ]
 
 (** Runs the post-analysis things on a system and its results.

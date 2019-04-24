@@ -1,6 +1,6 @@
 (* This file is part of the Kind 2 model checker.
 
-   Copyright (c) 2015 by the Board of Trustees of the University of Iowa
+   Copyright (c) 2015-2019 by the Board of Trustees of the University of Iowa
 
    Licensed under the Apache License, Version 2.0 (the "License"); you
    may not use this file except in compliance with the License.  You
@@ -115,7 +115,9 @@ module is not used yet.
 
 You can now add modules following the instructions in the previous section.
 
-@author Christoph Sticksel, Adrien Champion **)
+@author Christoph Sticksel, Adrien Champion, Alain Mebsout, Daniel Larraz
+
+**)
 
 
 (** {1 Accessors for flags} *)
@@ -203,6 +205,9 @@ val lus_strict : unit -> bool
 
 (** Activates compilation to Rust. *)
 val lus_compile : unit -> bool
+
+(** Activates weak assumption maximization *)
+val max_weak_assumptions : unit -> bool
 
 (** Colored output. *)
 val color : unit -> bool

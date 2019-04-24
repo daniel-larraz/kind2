@@ -1793,6 +1793,11 @@ and eval_node_contract_item
       eval_contract_item (Some "assume") scope (ctx, [], cpt_a) a in
     C.add_node_ass ctx assumes, cpt_a, cpt_g
 
+  | A.WeaklyAssume a ->
+    let ctx, weak_assumes, cpt_a =
+      eval_contract_item (Some "weakly_assume") scope (ctx, [], cpt_a) a in
+    C.add_node_weakly_ass ctx weak_assumes, cpt_a, cpt_g
+
   (* Evaluate guarantee *)
   | A.Guarantee g ->
     let ctx, guarantees, cpt_g =

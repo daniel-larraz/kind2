@@ -298,6 +298,7 @@ type contract_node_equation =
   | GhostConst of contract_ghost_const
   | GhostVar of contract_ghost_var
   | Assume of contract_assume
+  | WeaklyAssume of contract_assume
   | Guarantee of contract_guarantee
   | Mode of contract_mode
   | ContractCall of contract_call
@@ -1004,6 +1005,13 @@ let pp_print_contract_assume ppf (_, n, e) =
     (match n with None -> "" | Some s -> " \""^s^"\"")
     pp_print_expr e
 
+let pp_print_contract_weakly_assume ppf (_, n, e) =
+  Format.fprintf
+    ppf
+    "@[<hv 3>weakly_assume%s@ %a;@]"
+    (match n with None -> "" | Some s -> " \""^s^"\"")
+    pp_print_expr e
+
 let pp_print_contract_guarantee ppf (_, n, e) =
   Format.fprintf
     ppf
@@ -1053,6 +1061,7 @@ let pp_print_contract_item fmt = function
   | GhostConst c -> pp_print_contract_ghost_const fmt c
   | GhostVar v -> pp_print_contract_ghost_var fmt v
   | Assume a -> pp_print_contract_assume fmt a
+  | WeaklyAssume a -> pp_print_contract_weakly_assume fmt a
   | Guarantee g -> pp_print_contract_guarantee fmt g
   | Mode m -> pp_print_contract_mode fmt m
   | ContractCall call -> pp_print_contract_call fmt call
@@ -1732,6 +1741,7 @@ let contract_node_equation_has_pre_or_arrow = function
 | GhostConst decl
 | GhostVar decl -> const_decl_has_pre_or_arrow decl
 | Assume (_, _, e)
+| WeaklyAssume (_, _, e)
 | Guarantee (_, _, e) -> has_pre_or_arrow e
 | Mode (_, _, reqs, enss) ->
   List.map (fun (_, _, e) -> has_pre_or_arrow e) reqs

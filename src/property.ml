@@ -257,7 +257,7 @@ let set_prop_ktrue p k =
 (* Mark property status *)
 let set_prop_status p = function
 
-  | PropUnknown -> ()
+  | PropUnknown -> p.prop_status <- PropUnknown
 
   | PropKTrue k -> set_prop_ktrue p k 
 

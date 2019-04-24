@@ -1365,6 +1365,7 @@ module Create (P : SolverSig.Params) : SolverSig.Inst = struct
   let declare_fun = declare_fun solver
   let define_fun = define_fun solver
   let assert_expr = assert_removable_expr solver
+  let assert_soft_expr = failwith "Yices: assert-soft not available"
 
   let push = push solver
   let pop = pop solver

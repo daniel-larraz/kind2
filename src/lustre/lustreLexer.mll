@@ -309,6 +309,7 @@ let keyword_table = mk_hashtbl [
 
   (* |===| Block annotation contract stuff. *)
   "mode", MODE;
+  "weakly_assume", WEAKLY_ASSUME;
   "assume", ASSUME;
   "guarantee", GUARANTEE;
   "require", REQUIRE;

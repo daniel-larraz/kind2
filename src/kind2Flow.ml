@@ -1,6 +1,6 @@
 (* This file is part of the Kind 2 model checker.
 
-   Copyright (c) 2015 by the Board of Trustees of the University of Iowa
+   Copyright (c) 2015-2019 by the Board of Trustees of the University of Iowa
 
    Licensed under the Apache License, Version 2.0 (the "License"); you
    may not use this file except in compliance with the License.  You
@@ -83,7 +83,7 @@ let main_of_process = function
   | `C2I -> renice () ; C2I.main
   | `Interpreter -> Flags.Interpreter.input_file () |> Interpreter.main
   | `Supervisor -> InvarManager.main false child_pids
-  | `Parser | `Certif -> ( fun _ _ _ -> () )
+  | `Parser | `Certif | `WeakAssumpMaximizer -> ( fun _ _ _ -> () )
 
 (** Cleanup function of the process *)
 let on_exit_of_process mdl =
@@ -101,7 +101,7 @@ let on_exit_of_process mdl =
     | `C2I -> C2I.on_exit None
     | `Interpreter -> Interpreter.on_exit None
     | `Supervisor -> InvarManager.on_exit None
-    | `Parser | `Certif -> ()
+    | `Parser | `Certif | `WeakAssumpMaximizer -> ()
   ) ;
   SMTSolver.destroy_all ()
 

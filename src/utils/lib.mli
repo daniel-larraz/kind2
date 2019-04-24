@@ -318,7 +318,8 @@ type kind_module =
   | `Interpreter
   | `Supervisor
   | `Parser
-  | `Certif ]
+  | `Certif 
+  | `WeakAssumpMaximizer ]
 
 (** Wallclock timeout *)
 exception TimeoutWall

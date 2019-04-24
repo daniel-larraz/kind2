@@ -240,6 +240,7 @@ type contract_node_equation =
   | GhostConst of contract_ghost_const
   | GhostVar of contract_ghost_var
   | Assume of contract_assume
+  | WeaklyAssume of contract_assume
   | Guarantee of contract_guarantee
   | Mode of contract_mode
   | ContractCall of contract_call

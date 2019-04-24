@@ -1,6 +1,6 @@
 (* This file is part of the Kind 2 model checker.
 
-   Copyright (c) 2015 by the Board of Trustees of the University of Iowa
+   Copyright (c) 2015-2019 by the Board of Trustees of the University of Iowa
 
    Licensed under the Apache License, Version 2.0 (the "License"); you
    may not use this file except in compliance with the License.  You
@@ -2229,6 +2229,23 @@ module Global = struct
   let lus_compile () = !lus_compile
 
 
+  let max_weak_assumptions_default = false
+  let max_weak_assumptions = ref max_weak_assumptions_default
+  let _ = add_spec
+    "--max_weak_assumptions"
+    (bool_arg max_weak_assumptions)
+    (fun fmt ->
+      Format.fprintf fmt
+        "\
+          Maximize the number of weak assumptions@ \
+          used when falsifying properties@ \
+          Default: %a\
+        "
+        fmt_bool max_weak_assumptions_default
+    )
+  let max_weak_assumptions () = !max_weak_assumptions
+
+
   (* Reject unguarded pre's in Lustre file. *)
   let lus_strict_default = false
   let lus_strict = ref lus_strict_default
@@ -2441,6 +2458,7 @@ let all_input_files = Global.get_all_input_files
 let clear_input_files = Global.clear_input_files
 let add_input_file = Global.add_input_file
 let lus_compile = Global.lus_compile
+let max_weak_assumptions = Global.max_weak_assumptions
 let color = Global.color
 let weakhcons = Global.weakhcons
 

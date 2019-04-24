@@ -1,6 +1,6 @@
 (* This file is part of the Kind 2 model checker.
 
-   Copyright (c) 2014 by the Board of Trustees of the University of Iowa
+   Copyright (c) 2014-2019 by the Board of Trustees of the University of Iowa
 
    Licensed under the Apache License, Version 2.0 (the "License"); you
    may not use this file except in compliance with the License.  You
@@ -90,6 +90,10 @@ val mk_state_var_to_lustre_name_map :
 
 
 val is_lustre_input : _ t -> bool
+
+(** Return the lustre node of a system (specified by a scope),
+    or [None] if it is not a Lustre system *)
+val get_lustre_node : _ t -> Scope.t -> LustreNode.t option
 
 (** Compiles a system (scope) to Rust to the folder specified as a crate. *)
 val compile_to_rust : _ t -> Scope.t -> string -> unit
