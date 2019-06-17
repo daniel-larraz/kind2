@@ -108,10 +108,17 @@ let disprove_maximizing in_sys param sys props weak_assumes =
   Format.printf "Satisfied weak assumptions:@.";
   List.iter (fun (conj, wa) ->
     if eval conj then
-      Format.printf "%s@." (LustreContract.prop_name_of_svar wa "assume" "")
+      Format.printf "%s@." (LustreContract.prop_name_of_svar wa "weakly_assume" "")
   )
   soft_terms;
+  Format.printf "@.";
 
+  Format.printf "Unsatisfied weak assumptions:@.";
+  List.iter (fun (conj, wa) ->
+    if eval conj |> not then
+      Format.printf "%s@." (LustreContract.prop_name_of_svar wa "weakly_assume" "")
+  )
+  soft_terms;
   Format.printf "@.";
 
   (* Extract counterexample from solver *)
