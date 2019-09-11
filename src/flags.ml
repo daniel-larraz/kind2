@@ -2229,19 +2229,35 @@ module Global = struct
   let lus_compile () = !lus_compile
 
 
-  let max_weak_assumptions_default = false
+  type wa_opt_type = [
+    `No | `Locally | `Globally
+  ]
+  let wa_opt_type_of_string = function
+    | "no" -> `No
+    | "locally" -> `Locally
+    | "globally" -> `Globally
+    | _ -> raise (Arg.Bad "Bad value for --max_weak_assumptions")
+  let string_of_wa_opt_type = function
+    | `No -> "no"
+    | `Locally -> "locally"
+    | `Globally -> "globally"
+  let wa_opt_type_values = [
+    `No ; `Locally ; `Globally
+  ] |> List.map string_of_wa_opt_type |> String.concat ", "
+  let max_weak_assumptions_default = `No
   let max_weak_assumptions = ref max_weak_assumptions_default
   let _ = add_spec
     "--max_weak_assumptions"
-    (bool_arg max_weak_assumptions)
+    (Arg.String (fun str -> max_weak_assumptions := wa_opt_type_of_string str))
     (fun fmt ->
       Format.fprintf fmt
         "\
+          where <string> can be %s@ \
           Maximize the number of weak assumptions@ \
           used when falsifying properties@ \
-          Default: %a\
+          Default: %s\
         "
-        fmt_bool max_weak_assumptions_default
+        wa_opt_type_values (string_of_wa_opt_type max_weak_assumptions_default)
     )
   let max_weak_assumptions () = !max_weak_assumptions
 
@@ -2424,6 +2440,7 @@ end
 type enable = Global.enable
 type input_format = Global.input_format
 type real_precision = Global.real_precision
+type wa_opt_type = Global.wa_opt_type
 
 
 (* ********************************************************************** *)

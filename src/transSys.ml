@@ -1395,10 +1395,22 @@ let add_properties t props =
   { t with
     properties = List.rev_append (List.rev props) t.properties }
 
+let remove_properties t = { t with properties = [] }
 
 (* Adds an invariant to the transition system. *)
 let add_invariant t = add_scoped_invariant t t.scope
 
+
+let add_global_constant t sv =
+ { t with
+   state_vars = sv :: t.state_vars;
+   global_consts = (Var.mk_const_state_var sv) :: t.global_consts }
+
+let add_to_init t p =
+ { t with init = Term.mk_and [t.init; p] }
+
+let add_to_trans t p =
+ { t with trans = Term.mk_and [t.trans; p] }
 
 (* Instantiate the invariant constraint to the bound *)
 let invars_of_bound ?(one_state_only = false) { invariants } =

@@ -522,6 +522,8 @@ val all_props_proved : t -> bool
 (** Add properties to the transition system *)
 val add_properties : t -> Property.t list -> t
 
+val remove_properties : t -> t
+
 (** Add an invariant to the transition system. *)
 val add_invariant : t -> Term.t -> Certificate.t -> bool -> Term.t
 
@@ -531,6 +533,12 @@ Returns the normalized terms and a boolean indicating whether it is one
 state. *)
 val add_scoped_invariant :
   t -> string list -> Term.t -> Certificate.t -> bool -> Term.t
+
+val add_global_constant : t -> StateVar.t -> t
+
+val add_to_init : t -> Term.t -> t
+
+val add_to_trans : t -> Term.t -> t
 
 (** Instantiate invariants and valid properties to the bound *)
 val invars_of_bound : ?one_state_only:bool -> t -> Numeral.t -> Term.t list

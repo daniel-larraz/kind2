@@ -60,7 +60,7 @@ module type PostAnalysis = sig
     Analysis.param ->
     (** A function running an analysis with some modules. *)
     (
-      Lib.kind_module list -> 'a ISys.t -> Analysis.param -> TSys.t -> unit
+      bool -> Lib.kind_module list -> 'a ISys.t -> Analysis.param -> TSys.t -> unit
     ) ->
     (** Results for the current system. *)
     Analysis.results
@@ -269,7 +269,7 @@ module RunContractGen: PostAnalysis = struct
           ) "@ "
         ) teks ;
         try
-          analyze
+          analyze true
             teks
             (* [
               `INVGEN ; `INVGENOS ;
@@ -553,8 +553,8 @@ end
 module RunWeakAssumptionMax: PostAnalysis = struct
   let name = "wamax"
   let title = "weak assumption maximization"
-  let is_active () = Flags.max_weak_assumptions ()
-  let run in_sys param _ results =
+  let is_active () = Flags.max_weak_assumptions () <> `No
+  let run in_sys param analyze results =
     let top = (Analysis.info_of_param param).Analysis.top in
     last_result results top
     |> Res.chain (fun { Analysis.sys } ->
@@ -592,7 +592,14 @@ module RunWeakAssumptionMax: PostAnalysis = struct
     )
     |> Res.chain (fun (sys, invalid, weak_assumes) ->
       try (
-        WeakAssumpMax.disprove_maximizing in_sys param sys invalid weak_assumes; Ok ()
+        match Flags.max_weak_assumptions () with
+        | `Locally ->
+          WeakAssumpMax.disprove_maximizing_locally
+            in_sys param sys invalid weak_assumes; Ok ()
+        | `Globally ->
+          WeakAssumpMax.disprove_maximizing_globally
+            (analyze false) in_sys param sys invalid weak_assumes; Ok ()
+        | `No -> assert false
       )
       with e -> Err (
         fun fmt ->

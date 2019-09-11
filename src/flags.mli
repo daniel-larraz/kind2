@@ -206,8 +206,9 @@ val lus_strict : unit -> bool
 (** Activates compilation to Rust. *)
 val lus_compile : unit -> bool
 
+type wa_opt_type = [ `No | `Locally | `Globally ]
 (** Activates weak assumption maximization *)
-val max_weak_assumptions : unit -> bool
+val max_weak_assumptions : unit -> wa_opt_type
 
 (** Colored output. *)
 val color : unit -> bool

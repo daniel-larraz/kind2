@@ -21,6 +21,13 @@
     @author Daniel Larraz
 *)
 
-val disprove_maximizing: 'a InputSystem.t -> Analysis.param -> TransSys.t ->
+type 'a analyze_func =
+  Lib.kind_module list -> 'a InputSystem.t -> Analysis.param -> TransSys.t -> unit
+
+val disprove_maximizing_locally: 'a InputSystem.t -> Analysis.param -> TransSys.t ->
+  Property.t list -> LustreContract.svar list -> unit
+
+val disprove_maximizing_globally:
+  'a analyze_func -> 'a InputSystem.t -> Analysis.param -> TransSys.t ->
   Property.t list -> LustreContract.svar list -> unit
 
