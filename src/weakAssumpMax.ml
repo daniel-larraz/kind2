@@ -54,8 +54,6 @@ let disprove_maximizing_globally analyze in_sys param sys props weak_assumes =
 
   KEvent.set_module `WeakAssumpMaximizer;
 
-  let scope = TSys.scope_of_trans_sys sys in
-
   let num_weak_assumes = List.length weak_assumes in
 
   let get_cex prop =
@@ -63,6 +61,34 @@ let disprove_maximizing_globally analyze in_sys param sys props weak_assumes =
     | Property.PropFalse cex -> cex
     | _ -> failwith "property is not false"
   in
+
+  let print_result param' prop sys' cex =
+
+    let wa_model =
+      weak_assumes
+      |> List.map (fun ({LustreContract.svar} as wa) ->
+        let value_list = try
+          List.find (fun (sv, _) -> StateVar.equal_state_vars svar sv) cex |> snd
+          with Not_found -> failwith "weak assumption value not found"
+        in
+        LustreContract.prop_name_of_svar wa "weakly_assume" "",
+        List.fold_left (* eval conjunction *)
+          (fun acc v -> acc &&
+             match v with
+             | Model.Term t when Term.is_bool t -> Term.bool_of_term t
+             | _ -> failwith "weak assumption valuation failed"
+          )
+          true value_list
+      )
+    in
+
+    (* It sets property status to falsifiable.
+       It requires property status to be Unknown. *)
+    KEvent.cex_wam
+      cex wa_model in_sys param' sys' prop.Property.prop_name
+  in
+
+  let scope = TSys.scope_of_trans_sys sys in
 
   let mk_klocal_svar scope name =
     let svar_scope = scope @ I.reserved_scope in
@@ -85,12 +111,12 @@ let disprove_maximizing_globally analyze in_sys param sys props weak_assumes =
      so we remove all properties except the one we want to check
      (here we remove all properties, we add the property to check later)
   *)
-  let sys = TSys.remove_properties sys in
+  let base_sys = TSys.remove_properties sys in
 
   let sys =
     List.fold_left
       (fun sys' svar -> TSys.add_global_constant sys' svar)
-      sys act_svars
+      base_sys act_svars
   in
 
   let act_preds =
@@ -130,59 +156,58 @@ let disprove_maximizing_globally analyze in_sys param sys props weak_assumes =
 
   let old_log_level = Lib.get_log_level () in
 
-  let print_result param' prop sys' cex =
 
-    let wa_model =
-      weak_assumes
-      |> List.map (fun ({LustreContract.svar} as wa) ->
-        let value_list = try
-          List.find (fun (sv, _) -> StateVar.equal_state_vars svar sv) cex |> snd
-          with Not_found -> failwith "weak assumption value not found"
-        in
-        LustreContract.prop_name_of_svar wa "weakly_assume" "",
-        List.fold_left (* eval conjunction *)
-          (fun acc v -> acc &&
-             match v with
-             | Model.Term t when Term.is_bool t -> Term.bool_of_term t
-             | _ -> failwith "weak assumption valuation failed"
+  let run_analysis param' prop lower_bound upper_bound =
+
+    Property.set_prop_status prop Property.PropUnknown;
+
+    TSys.remove_invariants sys ;
+
+    let sys' =
+      (*if (lower_bound = num_weak_assumes) then
+        List.fold_left
+          (fun sys' wa ->
+            TSys.add_to_trans (TSys.add_to_init sys' wa) (Term.bump_state Numeral.one wa)
           )
-          true value_list
-      )
+          base_sys
+          (List.map
+            (fun {LustreContract.svar} ->
+               Var.mk_state_var_instance svar Numeral.zero |> Term.mk_var
+            )
+            weak_assumes
+          )
+      else*)
+        TSys.add_to_init sys (mk_num_act_vars_bounded lower_bound)
     in
 
-    (* It sets property status to falsifiable.
-       It requires property status to be Unknown. *)
-    KEvent.cex_wam
-      cex wa_model in_sys param' sys' prop.Property.prop_name
+    let sys' =
+      TSys.add_properties sys' [prop]
+    in
+
+    Format.printf "Looking for optimal value... LB=%d; UB=%d@." lower_bound upper_bound;
+
+    let param' = Analysis.param_clone param' in
+
+    Lib.set_log_level L_off ;
+
+    analyze modules in_sys param' sys' ;
+
+    Lib.set_log_level old_log_level;
+
+    Format.printf "Analysis finished!@.";
+
+    sys', param'
   in
 
-  let rec disprove_property param' prop last_cex lower_bound =
-    if lower_bound > num_weak_assumes then
+
+  let rec disprove_property_linear param' prop last_cex max =
+    if max > num_weak_assumes then
 
       print_result param' prop (TSys.add_properties sys [prop]) last_cex
 
     else (
-      Property.set_prop_status prop Property.PropUnknown;
 
-      let sys' =
-        TSys.add_to_init sys (mk_num_act_vars_bounded lower_bound)
-      in
-
-      let sys' =
-        TSys.add_properties sys' [prop]
-      in
-
-      Format.printf "Looking for optimal value... LB=%d; N=%d@." lower_bound num_weak_assumes;
-
-      let param' = Analysis.param_clone param' in
-
-      Lib.set_log_level L_off ;
-
-      analyze modules in_sys param' sys' ;
-
-      Lib.set_log_level old_log_level;
-
-      Format.printf "Analysis finished!@.";
+      let sys', param' = run_analysis param' prop max num_weak_assumes in
 
       match Property.get_prop_status prop with
       | Property.PropUnknown
@@ -196,11 +221,48 @@ let disprove_maximizing_globally analyze in_sys param sys props weak_assumes =
         print_result param' prop sys' last_cex
       )
       | Property.PropFalse cex ->
-        disprove_property param' prop cex (lower_bound + 1)
+        disprove_property_linear param' prop cex (max + 1)
     )
   in
 
-  List.iter (fun p -> disprove_property param p (get_cex p) 1) props;
+  let rec disprove_property_binary param' prop last_cex lo hi =
+    if lo > hi then (
+
+      Property.set_prop_status prop Property.PropUnknown;
+      print_result param' prop (TSys.add_properties sys [prop]) last_cex
+
+    )
+    else (
+
+      let mid = lo + (hi-lo)/2 in
+
+      let sys', param' = run_analysis param' prop mid hi in
+
+      match Property.get_prop_status prop with
+      | Property.PropUnknown
+      | Property.PropKTrue _ -> (
+        Format.printf "WARNING: no optimal solution@.";
+        Property.set_prop_status prop Property.PropUnknown;
+        print_result param' prop sys' last_cex
+      )
+      | Property.PropInvariant _ -> (
+        disprove_property_binary param' prop last_cex lo (mid - 1)
+      )
+      | Property.PropFalse cex ->
+        disprove_property_binary param' prop cex (mid + 1) hi
+     
+    )
+  in
+
+  match Flags.max_global_search () with
+  | `Linear ->
+    List.iter (fun p ->
+      disprove_property_linear param p (get_cex p) 1
+    ) props;
+  | `Binary ->
+    List.iter (fun p -> 
+      disprove_property_binary param p (get_cex p) 1 num_weak_assumes
+    ) props;
 
   KEvent.set_module mdl
 

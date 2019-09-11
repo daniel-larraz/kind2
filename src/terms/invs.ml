@@ -147,6 +147,7 @@ let fmt fmt { os ; ts } =
     Format.fprintf fmt "@]"
   )
 
+let clear { os; ts } = TMap.clear os ; TMap.clear ts
 
 (* 
    Local Variables:

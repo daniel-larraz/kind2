@@ -522,7 +522,11 @@ val all_props_proved : t -> bool
 (** Add properties to the transition system *)
 val add_properties : t -> Property.t list -> t
 
+(** Empty property set *)
 val remove_properties : t -> t
+
+(** Empty invariant set *)
+val remove_invariants : t -> unit
 
 (** Add an invariant to the transition system. *)
 val add_invariant : t -> Term.t -> Certificate.t -> bool -> Term.t

@@ -1397,6 +1397,8 @@ let add_properties t props =
 
 let remove_properties t = { t with properties = [] }
 
+let remove_invariants { invariants } = Invs.clear invariants 
+
 (* Adds an invariant to the transition system. *)
 let add_invariant t = add_scoped_invariant t t.scope
 

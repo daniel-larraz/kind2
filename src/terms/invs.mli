@@ -68,6 +68,9 @@ val merge : t -> t -> t
 (** Formats some invariants. *)
 val fmt : Format.formatter -> t -> unit
 
+(* Empty hash table *) 
+val clear : t -> unit
+
 (* 
    Local Variables:
    compile-command: "make -C .. -k"

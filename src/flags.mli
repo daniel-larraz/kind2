@@ -210,6 +210,9 @@ type wa_opt_type = [ `No | `Locally | `Globally ]
 (** Activates weak assumption maximization *)
 val max_weak_assumptions : unit -> wa_opt_type
 
+type max_search_type = [ `Linear | `Binary ]
+val max_global_search : unit -> max_search_type
+
 (** Colored output. *)
 val color : unit -> bool
 

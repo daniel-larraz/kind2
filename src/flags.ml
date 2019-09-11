@@ -2262,6 +2262,36 @@ module Global = struct
   let max_weak_assumptions () = !max_weak_assumptions
 
 
+  type max_search_type = [
+    `Linear | `Binary
+  ]
+  let max_search_of_string = function
+    | "linear" -> `Linear
+    | "binary" -> `Binary
+    | _ -> raise (Arg.Bad "Bad value for --max_global_search")
+  let string_of_max_search = function
+    | `Linear -> "linear"
+    | `Binary -> "binary"
+  let max_search_values = [
+    `Linear ; `Binary
+  ] |> List.map string_of_max_search |> String.concat ", "
+  let max_global_search_default = `Binary
+  let max_global_search = ref max_global_search_default
+  let _ = add_spec
+    "--max_global_search"
+    (Arg.String (fun str -> max_global_search := max_search_of_string str))
+    (fun fmt ->
+      Format.fprintf fmt
+        "\
+          where <string> can be %s@ \
+          Search strategy followed when maximizing globally@ \
+          Default: %s\
+        "
+        max_search_values (string_of_max_search max_global_search_default)
+    )
+  let max_global_search () = !max_global_search
+
+
   (* Reject unguarded pre's in Lustre file. *)
   let lus_strict_default = false
   let lus_strict = ref lus_strict_default
@@ -2441,6 +2471,7 @@ type enable = Global.enable
 type input_format = Global.input_format
 type real_precision = Global.real_precision
 type wa_opt_type = Global.wa_opt_type
+type max_search_type = Global.max_search_type
 
 
 (* ********************************************************************** *)
@@ -2476,6 +2507,7 @@ let clear_input_files = Global.clear_input_files
 let add_input_file = Global.add_input_file
 let lus_compile = Global.lus_compile
 let max_weak_assumptions = Global.max_weak_assumptions
+let max_global_search = Global.max_global_search
 let color = Global.color
 let weakhcons = Global.weakhcons
 
