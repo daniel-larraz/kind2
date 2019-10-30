@@ -25,7 +25,8 @@ let cmd_line
     produce_assignments
     produce_proofs
     produce_cores
-    produce_interpolants = 
+    produce_interpolants 
+    produce_abducts = 
 
   (* Path and name of Yices executable *)
   let yices_bin = Flags.Smt.yices_bin () in

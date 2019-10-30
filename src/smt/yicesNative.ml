@@ -1029,7 +1029,7 @@ let get_unsat_core solver =
 
 
 (* Execute a custom command and return the response *)
-let execute_custom_command solver cmd args num_res = 
+let execute_custom_command ?(timeout=0) solver cmd args num_res = 
 
   (* The command to send to the solver *)
   let cmd = 
@@ -1048,7 +1048,7 @@ let execute_custom_command solver cmd args num_res =
   let cmd = Format.sprintf "(echo \"%s\\n\")@ %s" YicesResponse.custom cmd in
     
   (* Send command to the solver without timeout *)
-  execute_custom_command' solver cmd 0 num_res 
+  execute_custom_command' solver cmd timeout num_res 
 
 
 (* Execute a custom command and return the response *)
@@ -1171,6 +1171,7 @@ let create_instance
       produce_assignments
       produce_proofs
       produce_cores
+      false
       false
   in
 
@@ -1377,7 +1378,8 @@ module Create (P : SolverSig.Params) : SolverSig.Inst = struct
   let get_unsat_core () = get_unsat_core solver
 
 
-  let execute_custom_command = execute_custom_command solver
+  let execute_custom_command ?(timeout = 0) cmd args num_res =
+    execute_custom_command ~timeout solver cmd args num_res
   let execute_custom_check_sat_command cmd =
     execute_custom_check_sat_command cmd solver
   let trace_comment = trace_comment solver

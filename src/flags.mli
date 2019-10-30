@@ -302,6 +302,13 @@ end
 (** {2 IC3 flags} *)
 module IC3 : sig
 
+  (* Generalization method in IC3 *)
+  type generalization = [
+    `QE | `Abduction
+  ]
+
+  val generalization : unit -> generalization
+
   (** Algorithm usable for quantifier elimination in IC3. *)
   type qe = [
     `Z3 | `Z3_impl | `Z3_impl2 | `Cooper

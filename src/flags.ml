@@ -645,6 +645,37 @@ module IC3 = struct
     )
   let use_invgen () = !use_invgen
 
+  type generalization = [
+    `QE | `Abduction
+  ]
+  let generalization_of_string = function
+    | "QE" -> `QE
+    | "Abduct" -> `Abduction
+    | _ -> raise (Arg.Bad "Bad value for --ic3_generalization")
+  let string_of_generalization = function
+    | `QE -> "QE"
+    | `Abduction -> "Abduct"
+  let generalization_values = [
+    `QE ; `Abduction
+  ] |> List.map string_of_generalization |> String.concat ", "
+  let generalization_default = `Abduction
+  let generalization = ref generalization_default
+  let _ = add_spec
+    "--ic3_generalization"
+    (Arg.String (fun str -> generalization := generalization_of_string str))
+    (fun fmt ->
+      Format.fprintf fmt
+        "@[<v>\
+          where <string> can be %s@ \
+          Choose generalization method@ \
+          Default: %s\
+        @]"
+        generalization_values (string_of_generalization generalization_default)
+    )
+  let set_generalization g = generalization := g
+  let generalization () = !generalization
+
+
   type qe = [
     `Z3 | `Z3_impl | `Z3_impl2 | `Cooper
   ]

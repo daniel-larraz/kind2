@@ -36,6 +36,7 @@ val create_instance :
   ?produce_proofs:bool ->
   ?produce_cores:bool ->
   ?produce_interpolants:bool ->
+  ?produce_abducts:bool ->
   TermLib.logic ->
   Flags.Smt.solver ->
   t
@@ -206,7 +207,7 @@ val check_sat_assuming_tf : t -> Term.t list -> bool
   
 (** Execute the a custom command with the given arguments, and expect
     the given number of S-expressions as a result *)
-val execute_custom_command : t -> string -> SMTExpr.custom_arg list -> int ->
+val execute_custom_command : ?timeout:int -> t -> string -> SMTExpr.custom_arg list -> int ->
   SolverResponse.custom_response
 
 (** Execute the a custom command in place of check-sat *)
@@ -230,6 +231,8 @@ val get_qe_expr : ?simpl:bool -> t -> SMTExpr.t -> Term.t list
 
 (** Apply quantifier elimination to a term *)
 val get_qe_term : ?simpl:bool -> t -> Term.t -> Term.t list
+
+val get_conjunctive_abduct : t -> Var.t list -> Term.t -> Term.t
 
 (* 
    Local Variables:

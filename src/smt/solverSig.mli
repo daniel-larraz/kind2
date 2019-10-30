@@ -27,6 +27,8 @@ module type Params = sig
 
   val produce_proofs : bool
 
+  val produce_abducts : bool
+
   val logic : TermLib.logic
 
   val id : int
@@ -95,7 +97,7 @@ module type Inst = sig
       expects [r] S-expressions as result in case of success and
       returns a pair of the success response and a list of
       S-expressions. *)
-  val execute_custom_command : string -> SMTExpr.custom_arg list -> int ->
+  val execute_custom_command : ?timeout:int -> string -> SMTExpr.custom_arg list -> int ->
     custom_response
 
   val execute_custom_check_sat_command : string -> check_sat_response

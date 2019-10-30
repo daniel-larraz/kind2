@@ -695,7 +695,7 @@ module Make (Driver : SMTLIBSolverDriver) : SolverSig.S = struct
 
 
   (* Execute a custom command and return the response *)
-  let execute_custom_command solver cmd args num_res = 
+  let execute_custom_command ?(timeout=0) solver cmd args num_res = 
 
     (* The command to send to the solver *)
     let cmd = 
@@ -711,7 +711,7 @@ module Make (Driver : SMTLIBSolverDriver) : SolverSig.S = struct
     in
 
     (* Send command to the solver without timeout *)
-    execute_custom_command' solver cmd 0 num_res 
+    execute_custom_command' solver cmd timeout num_res 
 
 
   (* Execute a custom command and return the response *)
@@ -892,6 +892,7 @@ module Make (Driver : SMTLIBSolverDriver) : SolverSig.S = struct
       ?(produce_proofs=false)
       ?(produce_cores=false)
       ?(produce_interpolants=false)
+      ?(produce_abducts=false)
       logic
       id =
     
@@ -903,6 +904,7 @@ module Make (Driver : SMTLIBSolverDriver) : SolverSig.S = struct
         produce_proofs
         produce_cores
         produce_interpolants
+        produce_abducts
     in
     let config = { solver_cmd = solver_cmd } in
     
@@ -999,7 +1001,15 @@ module Make (Driver : SMTLIBSolverDriver) : SolverSig.S = struct
         
         headers 
     in
-    
+ 
+    let headers =
+      if produce_abducts then
+        headers @
+        [Format.sprintf "(set-option :produce-abducts %B)" produce_abducts]
+      else
+        headers
+    in
+   
     (* Print specific headers specifications *)
     List.iter (fun cmd ->
         Debug.smt "%s" cmd;
@@ -1125,6 +1135,7 @@ module Make (Driver : SMTLIBSolverDriver) : SolverSig.S = struct
         ~produce_assignments:P.produce_assignments
         ~produce_cores:P.produce_cores
         ~produce_proofs:P.produce_proofs
+        ~produce_abducts:P.produce_abducts
         P.logic P.id
 
     let delete_instance () = delete_instance solver
@@ -1145,7 +1156,8 @@ module Make (Driver : SMTLIBSolverDriver) : SolverSig.S = struct
     let get_model = get_model solver
     let get_unsat_core () = get_unsat_core solver
 
-    let execute_custom_command = execute_custom_command solver
+    let execute_custom_command ?(timeout = 0) cmd args num_res =
+      execute_custom_command ~timeout solver cmd args num_res
     let execute_custom_check_sat_command cmd = execute_custom_check_sat_command cmd solver
     let trace_comment = trace_comment solver
     

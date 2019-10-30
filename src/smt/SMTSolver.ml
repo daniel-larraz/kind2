@@ -109,6 +109,7 @@ let create_instance
     ?produce_proofs
     ?produce_cores
     ?produce_interpolants
+    ?produce_abducts
     l
     kind =
 
@@ -122,6 +123,7 @@ let create_instance
     let produce_proofs = bool_of_bool_option produce_proofs
     let produce_cores = bool_of_bool_option produce_cores
     let produce_interpolants = bool_of_bool_option produce_interpolants
+    let produce_abducts = bool_of_bool_option produce_abducts
     let logic = l
     let id = id
   end
@@ -976,9 +978,9 @@ let check_sat_assuming_tf s literals =
     literals
 
     
-let execute_custom_command s cmd args num_res =
+let execute_custom_command ?(timeout=0) s cmd args num_res =
   let module S = (val s.solver_inst) in
-  S.execute_custom_command cmd args num_res
+  S.execute_custom_command ~timeout cmd args num_res
 
 let execute_custom_check_sat_command cmd s =
   let module S = (val s.solver_inst) in
@@ -1123,6 +1125,147 @@ let get_qe_term ?(simpl = false) solver quantified_term =
   let module S = (val solver.solver_inst) in
   get_qe_expr ~simpl:simpl solver (S.Conv.smtexpr_of_term quantified_term)
 
+
+let create_grammar_for_abduct vars =
+  let bool_vars, int_vars =
+    List.partition
+      (function v -> 
+        match Type.node_of_type (Var.type_of_var v) with 
+          | Type.Bool -> true
+          | Type.IntRange _
+          | Type.Int -> false
+          | _ -> raise Presburger.Not_in_LIA (* IC3 expects this exception *) 
+      )
+      vars
+  in
+
+  let atom s = HStringSExpr.Atom (HString.mk_hstring s) in
+
+  let decl_list = HStringSExpr.(
+    List [atom "abduct_term"; atom "Bool"] ::
+    List [atom "atom"; atom "Bool"] ::
+    List [atom "bool_var"; atom "Bool"] ::
+    List [atom "lia_term"; atom "Int"] ::
+    List [atom "lia_var"; atom "Int"] ::
+    List [atom "lia_cons"; atom "Int"] ::
+    List [atom "divisible_pred"; atom "Bool"] ::
+    [])
+  in 
+  let decl = HStringSExpr.(List decl_list) in
+
+  let abduct_term_def = HStringSExpr.(
+    let symbols =
+      atom "atom" ::
+      List [atom "and"; atom "abduct_term"; atom "abduct_term"] ::
+      []
+    in
+    List [atom "abduct_term"; atom "Bool"; List symbols])
+  in
+  let atom_def = HStringSExpr.(
+    let symbols =
+      atom "bool_var" ::
+      List [atom "not"; atom "bool_var"] ::
+      List [atom "="; atom "lia_term"; atom "lia_term"] ::
+      List [atom "not"; List [atom "="; atom "lia_term"; atom "lia_term"]] ::
+      List [atom ">"; atom "lia_term"; atom "lia_term"] ::
+      List [atom ">="; atom "lia_term"; atom "lia_term"] ::
+      List [atom "<"; atom "lia_term"; atom "lia_term"] ::
+      List [atom "<="; atom "lia_term"; atom "lia_term"] ::
+      atom "divisible_pred" ::
+      List [atom "not"; atom "divisible_pred"] ::
+      []
+    in
+    List [atom "atom"; atom "Bool"; List symbols]) 
+  in
+  let bool_var_def = HStringSExpr.(
+    let symbols =
+      bool_vars |> List.map (fun v -> atom (Var.string_of_var v))
+    in
+    List [atom "bool_var"; atom "Bool"; List symbols])
+  in
+  let lia_term_def = HStringSExpr.(
+    let symbols =
+      atom "lia_var" ::
+      atom "lia_cons" ::
+      List [atom "-"; atom "lia_term"] ::
+      List [atom "+"; atom "lia_term"; atom "lia_term"] ::
+      List [atom "-"; atom "lia_term"; atom "lia_term"] ::
+      List [atom "*"; atom "lia_cons"; atom "lia_term"] ::
+      [] 
+    in
+    List [atom "lia_term"; atom "Int"; List symbols])
+  in
+  let lia_var_def = HStringSExpr.(
+    let symbols =
+      int_vars |> List.map (fun v -> atom (Var.string_of_var v))
+    in
+    List [atom "lia_var"; atom "Int"; List symbols])
+  in
+  let lia_cons_def = HStringSExpr.(
+    let symbols =
+      (*Lib.list_init (fun n -> atom (string_of_int n)) 10*)
+      List [atom "Constant"; atom "Int"] :: []
+    in
+    List [atom "lia_cons"; atom "Int"; List symbols])
+  in
+  let divisible_pred_def = HStringSExpr.(
+    let symbols =
+      let mod_term =
+        List [atom "mod"; atom "lia_term"; atom "lia_cons"]
+      in
+      List [atom "="; mod_term; atom "0"] ::
+      []
+    in
+    List [atom "divisible_pred"; atom "Bool"; List symbols])
+  in
+
+  let def_list =
+    [abduct_term_def; atom_def; bool_var_def; lia_term_def;
+     lia_var_def; lia_cons_def; divisible_pred_def]
+  in
+  let def = HStringSExpr.(List def_list) in
+
+  decl, def
+
+let get_conjunctive_abduct_cvc4 solver vars conclusion =
+  let module S = (val solver.solver_inst) in
+
+  let abduct_uf =
+    UfSymbol.mk_fresh_uf_symbol [] Type.t_bool 
+  in
+
+  let abduct_symb = Term.mk_uf abduct_uf [] in
+
+  let grammar_decl, grammar_def = create_grammar_for_abduct vars in
+  (*Format.printf "GDecl: %a@." HStringSExpr.pp_print_sexpr grammar_decl;
+  Format.printf "GDef: %a@." HStringSExpr.pp_print_sexpr grammar_def;*)
+
+  let args =
+    [SMTExpr.ArgExpr abduct_symb; SMTExpr.ArgExpr conclusion ;
+     SMTExpr.ArgSExpr grammar_decl; SMTExpr.ArgSExpr grammar_def]
+  in
+
+  match execute_custom_command ~timeout:0 solver "get-abduct" args 1 with
+  | `Custom r -> (
+    match List.hd r with
+    | HStringSExpr.List [_; _; _; _; t] ->
+      (*Format.printf "T: %a@." HStringSExpr.pp_print_sexpr t;*)
+      S.Conv.term_of_smtexpr
+        (GenericSMTLIBDriver.expr_of_string_sexpr t)
+    | HStringSExpr.Atom s when s == (HString.mk_hstring "none") ->
+      failwith ("SMT solver failed: no abduction solution found")
+    | _ -> failwith  ("SMT solver failed: unexpected get-abduct response")
+  )
+  | `Error e -> failwith  ("SMT solver failed: " ^ e)
+
+
+let get_conjunctive_abduct solver vars conclusion =
+  let module S = (val solver.solver_inst) in
+  match solver.solver_kind with
+  | `CVC4_SMTLIB ->
+    get_conjunctive_abduct_cvc4 solver vars (S.Conv.smtexpr_of_term conclusion)
+  | _ -> failwith "Abduction is not supported by SMT solver or \
+                   implementation is not available"
 
 (* 
    Local Variables:

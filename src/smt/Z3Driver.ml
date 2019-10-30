@@ -24,7 +24,8 @@ let cmd_line
     produce_assignments
     produce_proofs
     produce_cores
-    produce_interpolants = 
+    produce_interpolants 
+    produce_abducts = 
 
   (* Path and name of Z3 executable *)
   let z3_bin = Flags.Smt.z3_bin () in

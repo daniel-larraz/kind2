@@ -26,7 +26,8 @@ let cmd_line
     produce_assignments
     produce_proofs
     produce_cores
-    produce_interpolants =
+    produce_interpolants 
+    produce_abducts =
 
   let open TermLib in
   

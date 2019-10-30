@@ -29,7 +29,7 @@ type var = Var.t
 type custom_arg = 
   | ArgString of string
   | ArgExpr of t
-
+  | ArgSExpr of HStringSExpr.t
 
 
 (* ********************************************************************* *)
@@ -273,7 +273,7 @@ struct
   let pp_print_custom_arg ppf = function 
     | ArgString s -> Format.pp_print_string ppf s
     | ArgExpr e -> pp_print_expr ppf e
-
+    | ArgSExpr e -> HStringSExpr.pp_print_sexpr ppf e
 
   (* Return a string representation of a custom argument *)
   let string_of_custom_arg t = 

@@ -673,35 +673,53 @@ let extrapolate trans_sys state f g =
 
   (* Construct term to be generalized with the transition relation and
      the invariants *)
+
+  let tr =
+    TransSys.trans_of_bound None trans_sys Numeral.one
+  in
+
+  let g' = Term.bump_state Numeral.one g in
+
   let term = 
     Term.mk_and 
-      [f; 
-       TransSys.trans_of_bound None trans_sys Numeral.one; 
+      [f; tr; 
 (*
        TransSys.invars_of_bound trans_sys ~one_state_only:true Numeral.zero; 
        TransSys.invars_of_bound trans_sys Numeral.one; 
 *)
-       Term.bump_state Numeral.one g]
+       g']
   in
-
-  (* Get primed variables in the transition system *)
-  let primed_vars = 
-    Var.VarSet.elements
-      (Term.vars_at_offset_of_term (Numeral.one) term) 
-  in 
 
   Stat.start_timer Stat.ic3_generalize_time;
 
   (* Generalize term by quantifying over and eliminating primed
      variables *)
-  let gen_term = 
-    QE.generalize 
-      trans_sys
-      (TransSys.uf_defs trans_sys) 
-      state
-      primed_vars
-      term 
+  let gen_term =
+    match Flags.IC3.generalization () with
+    | `QE -> (
+      (* Get primed variables in the transition system *)
+      let primed_vars = 
+        Var.VarSet.elements
+          (Term.vars_at_offset_of_term (Numeral.one) term) 
+      in 
+      QE.generalize 
+        trans_sys
+        (TransSys.uf_defs trans_sys) 
+        state
+        primed_vars
+        term
+    )
+    | `Abduction -> (
+      let vars =
+        Var.VarSet.elements
+          (Term.vars_at_offset_of_term (Numeral.zero) term) 
+      in
+      let premise = Term.mk_and [f; tr] in
+      Abduction.generalize trans_sys vars premise g'
+    )
   in
+
+  Format.printf "GEN_TERM: %a@." Term.pp_print_term (Term.mk_and gen_term);
 
   Stat.record_time Stat.ic3_generalize_time;
 
