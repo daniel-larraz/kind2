@@ -60,7 +60,7 @@ module type PostAnalysis = sig
     Analysis.param ->
     (** A function running an analysis with some modules. *)
     (
-      Lib.kind_module list -> 'a ISys.t -> Analysis.param -> TSys.t -> unit
+      bool -> Lib.kind_module list -> 'a ISys.t -> Analysis.param -> TSys.t -> unit
     ) ->
     (** Results for the current system. *)
     Analysis.results
@@ -269,7 +269,7 @@ module RunContractGen: PostAnalysis = struct
           ) "@ "
         ) teks ;
         try
-          analyze
+          analyze true
             teks
             (* [
               `INVGEN ; `INVGENOS ;
@@ -422,10 +422,7 @@ module RunInvLog: PostAnalysis = struct
       in
       try (
         let k_min, invs_min =
-          TSys.invars_of_bound sys Num.zero
-          |> List.filter nice_invariants
-          |> fun a -> Some a
-          |> CertifChecker.minimize_invariants sys
+          CertifChecker.minimize_invariants sys (Some nice_invariants)
         in
         KEvent.log_uncond
           "Minimization result: \
@@ -501,8 +498,7 @@ module RunInvPrint: PostAnalysis = struct
 
       try (
         let k_min, invs_min =
-          Some (TSys.invars_of_bound sys Num.zero)
-          |> CertifChecker.minimize_invariants sys
+          CertifChecker.minimize_invariants sys None
         in
         KEvent.log_uncond
           "Minimization result: \

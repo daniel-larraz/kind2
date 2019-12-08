@@ -164,13 +164,13 @@ let status_of_exn process status = function
     ExitCodes.error
   (* Got unknown, issue error but normal termination. *)
   | SMTSolver.Unknown ->
-    KEvent.log L_warn "In %a: a check-sat resulted in \"unknown\".@ \
-      This is most likely due to non-linear expressions in the model,@ \
+    KEvent.log L_warn "In %a: a check-sat resulted in `unknown`. \
+      This is most likely due to non-linear expressions in the model, \
       usually multiplications `v_1 * v_2` or divisions `v_1 / v_2`.%t"
       pp_print_kind_module process
       (fun fmt -> if Flags.Smt.check_sat_assume () then
          Format.fprintf fmt
-           " Consider running Kind 2 with `--check_sat_assume false` or@ \
+           " Consider running Kind 2 with `--check_sat_assume false` or \
              abstracting non-linear expressions using contracts."
        else ()
       );
@@ -432,7 +432,7 @@ let run_process in_sys param sys messaging_setup process =
     child_pids := (pid, process) :: !child_pids
 
 (** Performs an analysis. *)
-let analyze ?(ignore_props = false) msg_setup modules in_sys param sys =
+let analyze msg_setup ignore_props modules in_sys param sys =
   Stat.start_timer Stat.analysis_time ;
 
   ( if TSys.has_properties sys |> not && not ignore_props then
@@ -448,10 +448,17 @@ let analyze ?(ignore_props = false) msg_setup modules in_sys param sys =
       List.length props |> KEvent.log L_info "%d properties." ;
 
       KEvent.log L_debug "Starting child processes." ;
+
+      (* Disable the reception of messages of the invariant manager. *)
+      KEvent.update_child_processes_list [] ;
+      (* Get rid of messages from the previous analysis. *)
+      KEvent.purge_im msg_setup ;
+
       (* Start all child processes. *)
       modules |> List.iter (
         fun p -> run_process in_sys param sys msg_setup p
       ) ;
+
       (* Update background thread with new kids. *)
       KEvent.update_child_processes_list !child_pids ;
 
@@ -561,20 +568,20 @@ let run in_sys =
         ( match !latest_trans_sys with
           | Some old when TSys.equal_scope old sys |> not ->
             PostAnalysis.run in_sys (TSys.scope_of_trans_sys old) (
-              analyze ~ignore_props:true msg_setup
+              analyze msg_setup
             ) !all_results
           | _ -> ()
         ) ;
         latest_trans_sys := Some sys ;
         (* Analyze... *)
-        analyze msg_setup modules in_sys param sys ;
+        analyze msg_setup false modules in_sys param sys ;
         (* ...and loop. *)
         loop ()
 
       | None -> (
         ( match !latest_trans_sys with
           | Some sys -> PostAnalysis.run in_sys (TSys.scope_of_trans_sys sys) (
-            analyze ~ignore_props:true msg_setup
+            analyze msg_setup
           ) !all_results
           | _ -> ()
         ) ;

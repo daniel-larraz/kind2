@@ -226,15 +226,19 @@ let rec used_inputs_expr inputs acc =
 
   | Ident (_, i) | Last (_, i) -> ISet.add i acc
 
-  | RecordProject (_, e, _) | ToInt (_, e) | ToReal (_, e)
-  | Not (_, e) | Uminus (_, e) | Current (_, e) | When (_, e, _)
+  | RecordProject (_, e, _) | ToInt (_, e) 
+  | ToUInt8 (_, e) | ToUInt16 (_, e) | ToUInt32 (_, e) | ToUInt64 (_, e) 
+  | ToInt8 (_, e) | ToInt16 (_, e) | ToInt32 (_, e) | ToInt64 (_, e) | ToReal (_, e)
+  | Not (_, e) | Uminus (_, e) | BVNot (_, e) | Current (_, e) | When (_, e, _)
   | Forall (_, _, e) | Exists (_, _, e) ->
     used_inputs_expr inputs acc e
 
   | TupleProject (_, e1, e2) | And (_, e1, e2) | Or (_, e1, e2)
   | Xor (_, e1, e2) | Impl (_, e1, e2) | ArrayConstr (_, e1, e2) 
   | Mod (_, e1, e2) | Minus (_, e1, e2) | Plus (_, e1, e2) | Div (_, e1, e2)
-  | Times (_, e1, e2) | IntDiv (_, e1, e2) | Eq (_, e1, e2) | Neq (_, e1, e2)
+  | Times (_, e1, e2) | IntDiv (_, e1, e2) | BVAnd (_, e1, e2) | BVOr (_, e1, e2) 
+  | BVShiftL (_, e1, e2) | BVShiftR (_, e1, e2)
+  | Eq (_, e1, e2) | Neq (_, e1, e2)
   | Lte (_, e1, e2) | Lt (_, e1, e2) | Gte (_, e1, e2) | Gt (_, e1, e2)
   | ArrayConcat (_, e1, e2) ->
     used_inputs_expr inputs (used_inputs_expr inputs acc e2) e1
@@ -1103,7 +1107,8 @@ let rec eval_node_equation inputs outputs locals ctx = function
     let ctx = C.reset_guard_flag ctx in
 
     (* Add assertion to node *)
-    C.add_node_assert ctx expr
+    let (svar, _), ctx = C.mk_local_for_expr ~is_ghost:true pos ctx expr in
+    C.add_node_assert ctx pos svar
       
 
   (* Equations with possibly more than one variable on the left-hand side
@@ -1269,15 +1274,16 @@ and eval_ghost_var
     (* No type check for untyped or free constant *)
     | _ -> (
       (* Evaluate ghost expression *)
-      let expr, ctx =
+      let expr, ctx' =
         S.eval_ast_expr [] (
           (* Change context to fail on new definitions *)
-          if no_defs then 
+          if no_defs then
             C.fail_on_new_definition
               ctx pos "Invalid expression for variable"
           else ctx
         ) expr
       in
+      let ctx = if no_defs then ctx else ctx' in
       
       let type_expr = D.map (fun { E.expr_type } -> expr_type) expr in
       (* Add ghost to context. *)
@@ -1288,7 +1294,6 @@ and eval_ghost_var
 
       ctx
     )
-
 
 (* Evaluates a generic contract item: assume, guarantee, require or ensure. *)
 and eval_contract_item check scope (ctx, accum, count) (pos, iname, expr) =
