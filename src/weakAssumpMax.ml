@@ -36,6 +36,11 @@ let get_cex_length p =
   | Property.PropFalse cex -> Property.length_of_cex cex
   | _ -> assert false
 
+let get_cex p =
+  match Property.get_prop_status p with
+  | Property.PropFalse cex -> cex
+  | _ -> assert false
+
 let get_prop_with_shortest_cex props =
   List.map (fun p -> p, get_cex_length p) props
   |> List.fast_sort (fun (_,l1) (_,l2) -> compare l1 l2)
@@ -44,6 +49,8 @@ let get_prop_with_shortest_cex props =
 let disprove_maximizing in_sys param sys props weak_assumes =
 
   let disprove_property prop k =
+
+    let cex = get_cex prop in (* Stores cex before setting prop to Unknown *)
     Property.set_prop_status prop Property.PropUnknown;
 
     let num_k = Numeral.of_int k in
@@ -130,14 +137,37 @@ let disprove_maximizing in_sys param sys props weak_assumes =
       let cex =
         Model.path_from_model
           (TransSys.state_vars sys) model num_k
+        |> Model.path_to_list
       in
 
       KEvent.cex_wam
-        (Model.path_to_list cex)
-        wa_model in_sys param sys prop.Property.prop_name
-
+        cex wa_model in_sys param sys prop.Property.prop_name
     )
-    with e -> raise e
+    with 
+    | SMTSolver.Unknown -> (
+
+      let eval svar =
+        let var =
+          Term.mk_var (Var.mk_state_var_instance svar Model.path_offset)
+        in
+        Model.for_all_on_path
+          (fun m ->
+            Eval.eval_term (TransSys.uf_defs sys) m var
+            |> Eval.bool_of_value
+          )
+          (Model.path_of_list cex)
+      in
+
+      let wa_model =
+        List.map (fun ({LustreContract.svar} as wa) ->
+          (LustreContract.prop_name_of_svar wa "weakly_assume" "", eval svar))
+          weak_assumes
+      in
+
+      KEvent.cex_wam
+        cex wa_model in_sys param sys prop.Property.prop_name
+    )
+    | e -> raise e
 
   in
 
