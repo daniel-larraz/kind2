@@ -48,7 +48,9 @@ let get_prop_with_shortest_cex props =
 
 let disprove_maximizing in_sys param sys props weak_assumes =
 
-  let disprove_property prop k =
+  let disprove_property prop length =
+
+    let k = length - 1 in
 
     let cex = get_cex prop in (* Stores cex before setting prop to Unknown *)
     Property.set_prop_status prop Property.PropUnknown;
@@ -77,7 +79,7 @@ let disprove_maximizing in_sys param sys props weak_assumes =
           (fun i ->
             Term.mk_var (Var.mk_state_var_instance svar (Numeral.of_int i))
           )
-          k
+          (k+1)
         |> Term.mk_and, wa
       )
       weak_assumes
