@@ -1016,7 +1016,7 @@ let pp_print_counterexample_json
 
 
 (* Output disproved property as JSON *)
-let cex_json mdl level input_sys analysis trans_sys prop cex disproved =
+let cex_json ?(wa_model=[]) mdl level input_sys analysis trans_sys prop cex disproved =
 
   (* Only output if status was unknown *)
   if
@@ -1050,6 +1050,7 @@ let cex_json mdl level input_sys analysis trans_sys prop cex disproved =
           \"source\" : \"%s\", \
           \"value\" : \"%s\"\
         },@,\
+        %t\
         %a\
         @]@.}@.\
       "
@@ -1061,6 +1062,23 @@ let cex_json mdl level input_sys analysis trans_sys prop cex disproved =
          | cex -> let k = (Property.length_of_cex cex) - 1 in
            Format.fprintf ppf "\"k\" : %d,@," k)
       (short_name_of_kind_module mdl) answer
+      (function ppf -> match wa_model with
+         | [] -> ()
+         | _ -> (
+           let pp_sep ppf () = Format.fprintf ppf ",@," in
+           Format.fprintf ppf "\"weakAssumptions\" : @,[@[<v 1>@,%a@]@,],@,"
+             (Format.pp_print_list ~pp_sep (fun ppf (id, vl) ->
+                Format.fprintf ppf
+                   "{@[<v 1>@,\
+                    \"name\" : \"%s\",@,\
+                    \"satisfied\" : \"%b\"\
+                    @]@,}\
+                   "
+                   id vl)
+             )
+             wa_model
+         )
+      )
       (pp_print_counterexample_json input_sys analysis trans_sys prop disproved)
       cex
       ;
@@ -1232,7 +1250,7 @@ let log_cex ?(wa_model=[]) disproved mdl level input_sys analysis trans_sys prop
   | F_xml ->
     cex_xml ~wa_model mdl level input_sys analysis trans_sys prop cex disproved
   | F_json ->
-    cex_json mdl level input_sys analysis trans_sys prop cex disproved
+    cex_json ~wa_model mdl level input_sys analysis trans_sys prop cex disproved
   | F_relay -> ()
 
 (* Log a message with source and log level *)
