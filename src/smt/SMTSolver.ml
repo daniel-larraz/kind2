@@ -427,7 +427,11 @@ let model_of_smt_values conv_left type_left s smt_values =
         then
 
           (* Convert term to a real *)
-          Term.mk_to_real e'
+          if Term.is_numeral e' then (
+            let bint = Numeral.to_big_int (Term.numeral_of_term e') in
+            Term.mk_dec (Decimal.of_big_int bint)
+          )
+          else Term.mk_to_real e'
 
         else
           
@@ -756,6 +760,10 @@ let get_unsat_core_lits s =
 (* Checks satisfiability of some literals, runs if_sat if sat and if_unsat if
    unsat. *)
 let check_sat_assuming s if_sat if_unsat literals =
+
+  (* Calling check_sat_assuming with no litteral fails with CVC4,
+    so it is better to put this verification here *)
+  assert (literals <> []) ;
 
   let module S = (val s.solver_inst) in
 
