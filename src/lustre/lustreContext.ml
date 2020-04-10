@@ -639,7 +639,8 @@ let mk_state_var
            | D.ArrayIntIndex _ -> false
            | D.RecordIndex _
            | D.TupleIndex _
-           | D.ListIndex _ -> true)
+           | D.ListIndex _
+           | D.AbstractTypeIndex _ -> true)
          index)
   in
 
@@ -2219,7 +2220,7 @@ let solve_fref { deps' } decl (f_type, f_ident, f_pos) decls =
   (* Does the declaration forward ref-ed depend on current declaration? *)
   if Deps.mem deps' (f_type, f_ident) (typ, ident) then (
     Format.asprintf
-      "circular dependency between %a \"%a\" and %a \"%a\""
+      "circular dependency between %a '%a' and %a '%a'"
       Deps.pp_print_decl f_type (I.pp_print_ident false) f_ident
       Deps.pp_print_decl typ (I.pp_print_ident false) ident
     |> fail_at_position pos
@@ -2231,7 +2232,7 @@ let solve_fref { deps' } decl (f_type, f_ident, f_pos) decls =
     with Not_found ->
       (* Forward reference to unknown declaration. *)
       Format.asprintf
-        "unknown %a \"%a\" referenced in %a \"%a\""
+        "unknown %a '%a' referenced in %a '%a'"
         ( fun ppf -> function
           (* If it's an unknown constant, it's more generally an unknown
           identifier. *)
