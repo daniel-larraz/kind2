@@ -517,7 +517,7 @@ let eval term =
   Eval.eval_term [] empty_model term
   |> Eval.term_of_value
 
-let octagons oct3 f =
+let generic_octagons mk_plus mk_minus oct3 f =
   let rec octagons_3 terms terms set = match terms with
     | term :: tail ->
     (*   Format.printf "  oct 3 %a (%d)@."
@@ -526,8 +526,8 @@ let octagons oct3 f =
       List.map (fun term' -> [ term' ; term ]) terms
       |> List.fold_left (
         fun set terms ->
-          Set.add (Term.mk_plus terms |> f) set
-          |> Set.add (Term.mk_minus terms |> f)
+          Set.add (mk_plus terms |> f) set
+          |> Set.add (mk_minus terms |> f)
       ) set
       |> octagons_3 terms tail
     | [] -> set
@@ -539,9 +539,9 @@ let octagons oct3 f =
         (List.length tail) ; *)
       let terms = [ term ; term' ] in
       [
-        Term.mk_plus terms |> f ;
-        Term.mk_minus terms |> f ;
-        (* terms |> List.rev |> Term.mk_minus |> f *)
+        mk_plus terms |> f ;
+        mk_minus terms |> f ;
+        (* terms |> List.rev |> mk_minus |> f *)
       ]
       |> List.fold_left (
         fun set term -> Set.add term set
@@ -565,9 +565,9 @@ let octagons oct3 f =
   in
   loop
 
+let octagons = generic_octagons Term.mk_plus Term.mk_minus
 
-
-
+let octagons_bv = generic_octagons Term.mk_bvadd Term.mk_bvsub
 
 (** Integer rules. *)
 module IntRules = struct
@@ -672,7 +672,105 @@ end
 module Int = MakeCandGen (IntRules)
 
 
+(** Int32 rules. *)
+module Int32Rules = struct
+  let comp_set _ = Set.empty
 
+  (* We'll extract the state var to create octagons. *)
+  type svar_info = unit
+
+  let svar_rules two_state svars set =
+    (* Format.printf "svars: @[<v>%a@]@.@."
+      (pp_print_list
+        (fun fmt svar ->
+          Format.fprintf fmt "%a (%a)"
+            fmt_svar svar
+            Type.pp_print_type_node (type_of_svar svar)
+        ) "@ "
+      ) svars ; *)
+    let svars, set =
+      svars |> List.fold_left (
+        fun (svars, set) svar ->
+        match type_of_svar svar with
+        | Type.BV 32 ->
+          if SVar.for_inv_gen svar then
+            (var_of svar) :: svars, set
+          else svars, set
+        | _ -> svars, set
+      ) ([], set)
+    in
+    (* Format.printf "loop: @[<v>%a@]@.@."
+      (pp_print_list
+        (fun fmt term ->
+          Format.fprintf fmt "%a (%a)"
+            fmt_term term
+            Type.pp_print_type_node (type_of term)
+        ) "@ "
+      ) svars ; *)
+    let set =
+      octagons_bv (Flags.Invgen.all_out ()) identity svars set
+    in
+    (* Format.printf "set: @[<v>%a@]@.@."
+      (pp_print_list fmt_term "@ ")
+      (Set.elements set) ; *)
+    set, ()
+
+  (* We're gonna use the flat info to store the constants found in the flat
+  terms. *)
+  type flat_info = set
+
+  let post_svars _ (set, _) = (set, Set.empty)
+
+  let flat_rules two_state flat (set, constants) =
+    let term = to_term flat in
+    match type_of term with
+    | Type.BV 32 -> (
+      match flat with
+      | Term.T.App (sym, kids) ->
+        if (
+          Flags.Invgen.all_out ()
+        ) || (
+          kids |> List.for_all is_var_or_const
+        ) then Set.add term set, constants else set, constants
+      | Term.T.Const sym -> (
+        match Symbol.node_of_symbol sym with
+        | `BV bv when Bitvector.length_of_bitvector bv = 32 ->
+          Set.add term set, Set.add term constants
+        | _ -> failwith "Constant of type int32 is not a signed bit-vector of width 32."
+      )
+      (* | Term.T.Attr (term, _) ->
+        flat_rules two_state (Term.destruct term) (set, constants)*)
+      | Term.T.Var _ ->
+        Set.add term set, constants
+    )
+    | _ -> set, constants
+
+  let post_rules _ _ constants set =
+    let zero = Term.mk_bv (Bitvector.num_to_bv32 zero) in
+    let one = Term.mk_bv (Bitvector.num_to_bv32 one) in
+    let set =
+      Set.add zero set
+      |> Set.add one
+      |> octagons true eval(
+        Set.add one constants |> Set.elements
+      )
+    in
+    let set =
+      Set.fold (
+        fun term set -> Set.add (Term.mk_bvneg_simplify term) set
+      ) set set
+    in
+    (* Format.printf "set: @[<v>%a@]@.@."
+      (pp_print_list fmt_term "@ ")
+      (Set.elements set) ; *)
+    set
+
+
+end
+
+
+(** Machine integer candidate term miner. *)
+module Int32 = MakeCandGen (Int32Rules)
 
 
 

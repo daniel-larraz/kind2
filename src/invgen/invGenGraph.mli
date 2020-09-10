@@ -154,6 +154,9 @@ module Bool : Graph
 (** Graph of integers with less than or equal. *)
 module Int : Graph
 
+(** Graph of int32 with less than or equal. *)
+module Int32 : Graph
+
 (** Graph of reals with less than or equal. *)
 module Real : Graph
 
@@ -165,6 +168,8 @@ module EqOnly : sig
 
   (** Graph of integers. *)
   module Int : Graph
+
+  module Int32 : Graph
 
   (** Graph of reals. *)
   module Real : Graph

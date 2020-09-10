@@ -335,6 +335,8 @@ type kind_module =
   | `INVGENOS
   | `INVGENINT
   | `INVGENINTOS
+  | `INVGENINT32
+  | `INVGENINT32OS
   | `INVGENREAL
   | `INVGENREALOS
   | `C2I

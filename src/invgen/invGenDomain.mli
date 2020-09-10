@@ -62,6 +62,9 @@ module Bool : Domain
 (** Integer domain with less than or equal to. *)
 module Int : Domain
 
+(** Int32 domain with less than or equal to. *)
+module Int32 : Domain
+
 (** Real domain with less than or equal to. *)
 module Real : Domain
 

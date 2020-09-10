@@ -77,6 +77,8 @@ let main_of_process = function
   | `INVGENOS -> renice () ; InvGen.main_bool false
   | `INVGENINT -> renice () ; InvGen.main_int true
   | `INVGENINTOS -> renice () ; InvGen.main_int false
+  | `INVGENINT32 -> renice () ; InvGen.main_int32 true
+  | `INVGENINT32OS -> renice () ; InvGen.main_int32 false
   | `INVGENREAL -> renice () ; InvGen.main_real true
   | `INVGENREALOS -> renice () ; InvGen.main_real false
   | `C2I -> renice () ; C2I.main
@@ -95,6 +97,8 @@ let on_exit_of_process mdl =
     | `INVGENOS -> InvGen.exit None
     | `INVGENINT -> InvGen.exit None
     | `INVGENINTOS -> InvGen.exit None
+    | `INVGENINT32 -> InvGen.exit None
+    | `INVGENINT32OS -> InvGen.exit None
     | `INVGENREAL -> InvGen.exit None
     | `INVGENREALOS -> InvGen.exit None
     | `C2I -> C2I.on_exit None

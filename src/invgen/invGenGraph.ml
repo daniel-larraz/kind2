@@ -1451,6 +1451,9 @@ module Bool = Make( InvGenDomain.Bool )
 (** Graph of integers with less than or equal. *)
 module Int = Make( InvGenDomain.Int )
 
+(** Graph of int32 with less than or equal. *)
+module Int32 = Make ( InvGenDomain.Int32 )
+
 (** Graph of reals with less than or equal. *)
 module Real = Make( InvGenDomain.Real )
 
@@ -1462,6 +1465,9 @@ module EqOnly = struct
 
   (** Graph of integers. *)
   module Int = MakeEq( InvGenDomain.Int )
+
+  (** Graph of integers. *)
+  module Int32 = MakeEq( InvGenDomain.Int32 )
 
   (** Graph of reals. *)
   module Real = MakeEq( InvGenDomain.Real )

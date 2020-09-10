@@ -27,6 +27,10 @@ end
 module Bool : CandGen
 (** Integer candidate term miner. *)
 module Int : CandGen
+
+(** Int32 candidate term miner. *)
+module Int32 : CandGen
+
 (** Real candidate term miner. *)
 module Real : CandGen
 

@@ -146,6 +146,46 @@ module Int: Domain = struct
 end
 
 
+(** Int32 domain with less than or equal to. *)
+module Int32: Domain = struct
+  (* Evaluates a term to a numeral. *)
+  let eval_sbv sys model term =
+    Eval.eval_term (Sys.uf_defs sys) model term
+    |> Eval.sbv_of_value
+
+  let name = "Int32"
+  type t = Bitvector.t
+  let fmt = Bitvector.pp_print_signed_machine_integer
+  let eq = Bitvector.equal
+  let cmp = Bitvector.(<=)
+  let mk_eq rep term = Term.mk_eq [ rep ; term ]
+  let mk_cmp lhs rhs = Term.mk_bvsle [ lhs ; rhs ]
+  let eval = eval_sbv
+  let mine top_only two_state param top_sys =
+    InvGenMiner.Int32.mine top_only two_state top_sys
+    |> List.filter (
+      fun (sys, _) ->
+        (sys == top_sys) || (
+          (not top_only) && (
+            TransSys.scope_of_trans_sys sys
+            |> Analysis.param_scope_is_abstract param
+            |> not
+          )
+        )
+    )
+  let first_rep_of terms =
+    let rep = Set.choose terms in
+    rep, Set.remove rep terms
+  let is_bot _ = false
+  let is_top _ = false
+  let is_os_running () = (
+    Flags.enabled () |> List.mem `INVGENINT32OS
+  ) && (
+    Flags.Contracts.contract_gen () |> not
+  )
+end
+
+
 (** Real domain with less than or equal to. *)
 module Real: Domain = struct
   (* Evaluates a term to a decimal. *)

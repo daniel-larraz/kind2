@@ -180,6 +180,10 @@ val mk_bvnot : t -> t
 (* Create a bitvector negation (2's complement) *)
 val mk_bvneg : t -> t
 
+(* Negates a term by modifying the top node if it is a bvneg or an
+   machine integer constant. *)
+val mk_bvneg_simplify : t -> t
+
 (** Create a bitvector left shift *)
 val mk_bvshl : t list -> t
 

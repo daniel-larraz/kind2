@@ -756,6 +756,9 @@ module BoolInvGen = Make(InvGenGraph.Bool)
 (** Integer invariant generation. *)
 module IntInvGen = Make(InvGenGraph.Int)
 
+(** Int32 invariant generation. *)
+module Int32InvGen = Make(InvGenGraph.Int32)
+
 (** Real invariant generation. *)
 module RealInvGen = Make(InvGenGraph.Real)
 
@@ -767,6 +770,9 @@ module EqOnly = struct
 
   (** Graph of integers. *)
   module IntInvGen = Make( InvGenGraph.EqOnly.Int )
+
+  (** Graph of int32s. *)
+  module Int32InvGen = Make( InvGenGraph.EqOnly.Int32 )
 
   (** Graph of reals. *)
   module RealInvGen = Make( InvGenGraph.EqOnly.Real )
@@ -810,6 +816,24 @@ let main_int two_state in_sys param sys =
   ) two_state in_sys param sys
   |> ignore ;
   exit 0
+
+
+let main_int32 two_state in_sys param sys =
+  (
+    if Flags.Invgen.arith_eq_only () then
+      EqOnly.Int32InvGen.main
+    else
+      Int32InvGen.main
+  ) (
+    max_depth ()
+  ) (
+    Flags.Invgen.top_only ()
+  ) (
+    Flags.modular () |> not
+  ) two_state in_sys param sys
+  |> ignore ;
+  exit 0
+
 
 let main_real two_state in_sys param sys =
   (

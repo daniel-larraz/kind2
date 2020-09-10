@@ -2666,6 +2666,8 @@ module Global = struct
     | "INVGENOS" -> `INVGENOS
     | "INVGENINT" -> `INVGENINT
     | "INVGENINTOS" -> `INVGENINTOS
+    | "INVGENINT32" -> `INVGENINT32
+    | "INVGENINT32OS" -> `INVGENINT32OS
     | "INVGENREAL" -> `INVGENREAL
     | "INVGENREALOS" -> `INVGENREALOS
     | "C2I" -> `C2I
@@ -2684,6 +2686,8 @@ module Global = struct
     | `INVGENOS -> "INVGENOS"
     | `INVGENINT -> "INVGENINT"
     | `INVGENINTOS -> "INVGENINTOS"
+    | `INVGENINT32 -> "INVGENINT32"
+    | `INVGENINT32OS -> "INVGENINT32OS"
     | `INVGENREAL -> "INVGENREAL"
     | `INVGENREALOS -> "INVGENREALOS"
     | `C2I -> "C2I"
@@ -2701,6 +2705,7 @@ module Global = struct
     `IC3 ; `BMC ; `IND ; `IND2 ;
     `INVGEN ; `INVGENOS ;
     `INVGENINT ; `INVGENINTOS ;
+    `INVGENINT32 ; `INVGENINT32OS ;
     `INVGENREAL ; `INVGENREALOS ;
     `C2I ; `Interpreter ; `MCS
   ] |> List.map string_of_kind_module |> String.concat ", "
@@ -2711,7 +2716,7 @@ module Global = struct
   let enable_default_after = [
     `BMC ; `IND ; `IND2 ; `IC3 ;
     `INVGEN ; `INVGENOS ;
-    (* `INVGENINT ; *) `INVGENINTOS ;
+    (* `INVGENINT ; *) `INVGENINTOS ; `INVGENINT32OS ;
     (* `INVGENREAL ; *) `INVGENREALOS ;
   ]
   let enabled = ref enable_default_init
@@ -2759,6 +2764,8 @@ module Global = struct
     | `INVGENOS
     | `INVGENINT
     | `INVGENINTOS
+    | `INVGENINT32
+    | `INVGENINT32OS
     | `INVGENREAL
     | `INVGENREALOS -> true
     | _ -> false

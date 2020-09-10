@@ -36,6 +36,10 @@ val main_bool :
 val main_int :
   bool -> 'a InputSystem.t -> Analysis.param -> TransSys.t -> unit
 
+(** Temporary entry point for int32 invariant generation. *)
+val main_int32 :
+  bool -> 'a InputSystem.t -> Analysis.param -> TransSys.t -> unit
+
 (** Temporary entry point for real invariant generation. *)
 val main_real :
   bool -> 'a InputSystem.t -> Analysis.param -> TransSys.t -> unit
@@ -72,6 +76,9 @@ module BoolInvGen : Out
 (** Int invariant generation module. *)
 module IntInvGen : Out
 
+(** Int32 invariant generation module. *)
+module Int32InvGen : Out
+
 (** Real invariant generation module. *)
 module RealInvGen : Out
 
@@ -85,6 +92,9 @@ module EqOnly : sig
 
   (** Graph of integers. *)
   module IntInvGen : Out
+
+  (** Graph of int32. *)
+  module Int32InvGen : Out
 
   (** Graph of reals. *)
   module RealInvGen : Out
