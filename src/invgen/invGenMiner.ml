@@ -751,7 +751,7 @@ module Int32Rules = struct
     let set =
       Set.add zero set
       |> Set.add one
-      |> octagons true eval(
+      |> octagons_bv true eval(
         Set.add one constants |> Set.elements
       )
     in
