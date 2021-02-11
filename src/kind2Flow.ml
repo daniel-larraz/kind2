@@ -100,7 +100,8 @@ let main_of_process = function
   | `C2I -> renice () ; C2I.main
   | `Interpreter -> Flags.Interpreter.input_file () |> Interpreter.main
   | `Supervisor -> InvarManager.main false false child_pids
-  | `INVGENMACH | `INVGENMACHOS | `MCS | `Parser | `Certif -> ( fun _ _ _ -> () )
+  | `INVGENMACH | `INVGENMACHOS | `MCS | `CONTRACTCK
+  | `Parser | `Certif -> ( fun _ _ _ -> () )
 
 (** Cleanup function of the process *)
 let on_exit_of_process mdl =
@@ -134,7 +135,8 @@ let on_exit_of_process mdl =
     | `C2I -> C2I.on_exit None
     | `Interpreter -> Interpreter.on_exit None
     | `Supervisor -> InvarManager.on_exit None
-    | `INVGENMACH | `INVGENMACHOS | `MCS | `Parser | `Certif -> ()
+    | `INVGENMACH | `INVGENMACHOS | `MCS | `CONTRACTCK
+    | `Parser | `Certif -> ()
   ) ;
   SMTSolver.destroy_all ()
 
@@ -347,8 +349,8 @@ let post_clean_exit in_sys process exn =
   (* Exit with status. *)
   exit status
 
-(** Called after everything has been cleaned up, for a MCS analysis. *)
-let post_clean_exit_mcs_analysis process exn =
+(** Called after everything has been cleaned up *)
+let post_clean_exit_without_result process exn =
   (* Exit status of process depends on exception. *)
   let status = status_of_exn process ExitCodes.unknown exn in
   (* Close tags in XML output. *)
@@ -582,6 +584,17 @@ let check_analysis_flags () =
       show_msg_and_exit "compositional"
   )
 
+let handle_exception in_sys process e =
+  (* Get backtrace now, Printf changes it *)
+  let backtrace = Printexc.get_raw_backtrace () in
+
+  if Printexc.backtrace_status () then
+    KEvent.log L_fatal "Caught %s in %a.@\nBacktrace:@\n%a"
+      (Printexc.to_string e)
+      pp_print_kind_module process
+      print_backtrace backtrace;
+
+  on_exit in_sys None process e
 
 (** Runs the analyses produced by the strategy module. *)
 let run in_sys =
@@ -624,6 +637,58 @@ let run in_sys =
     KEvent.terminate_log () ;
     exit ExitCodes.error
 
+  (* Only the contract checker is active.*)
+  | [m] when m = `CONTRACTCK -> (
+
+    try (
+      let msg_setup = KEvent.setup () in
+      KEvent.set_module `CONTRACTCK ;
+      KEvent.run_im msg_setup [] (on_exit in_sys None `CONTRACTCK) |> ignore ;
+      KEvent.log L_debug "Messaging initialized in Contract Check." ;
+
+      match ISys.contract_check_params in_sys with
+      | [] -> KEvent.log L_note "No imported nodes found, skipping contract check."
+      | params -> (
+        params |> List.iter (fun (param, has_contract) ->
+          let result =
+            if not has_contract then
+              ContractChecker.Realizable
+            else 
+              (* Build trans sys and slicing info. *)
+              let sys, _ =
+                ISys.trans_sys_of_analysis
+                  (*~preserve_sig:true ~slice_nodes:false*) in_sys param
+              in
+              (*Format.printf "TS:@.%a@." (TSys.pp_print_subsystems true) sys;*)
+              ContractChecker.realizability_check in_sys sys
+          in
+          let scope = (Analysis.info_of_param param).top in
+          match result with
+          | Realizable ->
+              KEvent.log L_note "System %a is Realizable"
+                Scope.pp_print_scope scope;
+          | Unrealizable ->
+              KEvent.log L_note "System %a is Unrealizable"
+                Scope.pp_print_scope scope;
+          | Unknown ->
+              KEvent.log L_note 
+                "Could not determine whether system %a is realizable or not"
+                Scope.pp_print_scope scope;
+        ) 
+      ) ;
+
+      post_clean_exit_without_result `CONTRACTCK Exit
+    ) with
+    | TimeoutWall -> on_exit in_sys None `CONTRACTCK TimeoutWall
+    | e -> handle_exception in_sys `CONTRACTCK e
+  )
+
+  (* Some modules, including the contract checker. *)
+  | modules when List.mem `CONTRACTCK modules ->
+    KEvent.log L_fatal "Cannot run the contract checker with other processes." ;
+    KEvent.terminate_log () ;
+    exit ExitCodes.error
+
   (* MCS is active. *)
   | modules when List.mem `MCS modules -> (
 
@@ -654,10 +719,10 @@ let run in_sys =
         |> KEvent.log_analysis_end
       in
       List.iter run_mcs params ;
-      post_clean_exit_mcs_analysis `Supervisor Exit
+      post_clean_exit_without_result `Supervisor Exit
     ) with
     | TimeoutWall -> on_exit in_sys None `Supervisor TimeoutWall
-    | e -> on_exit in_sys None `Supervisor e
+    | e -> handle_exception in_sys `Supervisor e
   ) 
 
   (* Some analysis modules. *)
@@ -752,17 +817,7 @@ let run in_sys =
 
     ) with
     | TimeoutWall -> on_exit in_sys None `Supervisor TimeoutWall
-    | e ->
-      (* Get backtrace now, Printf changes it *)
-      let backtrace = Printexc.get_raw_backtrace () in
-
-      if Printexc.backtrace_status () then
-        KEvent.log L_fatal "Caught %s in %a.@\nBacktrace:@\n%a"
-          (Printexc.to_string e)
-          pp_print_kind_module `Supervisor
-          print_backtrace backtrace;
-
-      on_exit in_sys None `Supervisor e
+    | e -> handle_exception in_sys `Supervisor e
 
 (* 
    Local Variables:

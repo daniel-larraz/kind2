@@ -2762,6 +2762,7 @@ module Global = struct
     | "C2I" -> `C2I
     | "interpreter" -> `Interpreter
     | "MCS" -> `MCS
+    | "CONTRACTCK" -> `CONTRACTCK
     | unexpected -> Arg.Bad (
       Format.sprintf "Unexpected value '%s' for flag --enable" unexpected
     ) |> raise
@@ -2782,6 +2783,7 @@ module Global = struct
     | `C2I -> "C2I"
     | `Interpreter -> "interpreter"
     | `MCS -> "MCS"
+    | `CONTRACTCK -> "CONTRACTCK"
   let string_of_enable = function
     | head :: tail -> (
       List.fold_left
@@ -2796,7 +2798,7 @@ module Global = struct
     `INVGENINT ; `INVGENINTOS ;
     `INVGENMACH ; `INVGENMACHOS ;
     `INVGENREAL ; `INVGENREALOS ;
-    `C2I ; `Interpreter ; `MCS
+    `C2I ; `Interpreter ; `MCS ; `CONTRACTCK
   ] |> List.map string_of_kind_module |> String.concat ", "
 
   let enable_default_init = []
