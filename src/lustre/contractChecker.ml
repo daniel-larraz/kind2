@@ -43,35 +43,8 @@ let term_partition var_lst term_lst =
 let get_conjucts term =
   match Term.destruct term with
   | Term.T.App (s, args) when s == Symbol.s_and -> args
-  | _ -> assert false
+  | _ -> [term]
 
-(*let get_assumption_vars in_sys sys =
-  let scope = TSys.scope_of_trans_sys sys in
-
-  let assumption_var_lst =
-    match ISys.get_lustre_node in_sys scope with
-    | Some { LN.contract } -> (
-      match contract with
-      | Some { LC.assumes } -> List.map (fun {LC.svar} -> svar) assumes 
-      | None -> []
-    )
-    | None -> assert false
-  in
-
-  let assumption_dep_vars =
-    let svar_deps =
-      match Scope.Map.find_opt scope (ISys.state_var_dependencies in_sys) with
-      | Some deps -> deps
-      | None -> assert false
-    in
-    List.fold_left
-      (fun set sv ->
-        try SVS.union set (SVM.find sv svar_deps)
-        with Not_found -> assert false
-      )
-      SVS.empty assumption_var_lst
-  in
-  SVS.union (SVS.of_list assumption_var_lst) assumption_dep_vars*)
 
 let get_assumption_vars in_sys sys =
   let scope = TSys.scope_of_trans_sys sys in
@@ -240,6 +213,20 @@ let compute_unsat_trans_core sys context requirements ex_var_lst =
 
 let realizability_check in_sys sys =
   
+  (* Solver for term simplification *)
+  let solver =
+    SMTSolver.create_instance
+      (TSys.get_logic sys)
+      (Flags.Smt.solver ())
+  in
+
+  TransSys.define_and_declare_of_bounds
+    sys
+    (SMTSolver.define_fun solver)
+    (SMTSolver.declare_fun solver)
+    (SMTSolver.declare_sort solver)
+    Numeral.zero Numeral.one;
+
   (*Format.printf "%a@." InputSystem.pp_print_subsystems_debug in_sys;*)
   (*Format.printf "%a@." (TSys.pp_print_subsystems true) sys ;*)
 
@@ -297,9 +284,7 @@ let realizability_check in_sys sys =
     term_partition controllable_vars_at_0 (get_conjucts init)
   in
 
-  let rec loop fpl =
-
-    let fp = Term.mk_and fpl in
+  let rec loop fp =
 
     let fp_at_1 = Term.bump_state Numeral.one fp in
 
@@ -338,7 +323,7 @@ let realizability_check in_sys sys =
         let context = free_of_controllable_vars_at_0 in
 
         let requirements =
-          fpl @ contains_controllable_vars_at_0
+          (get_conjucts fp) @ contains_controllable_vars_at_0
         in
 
         compute_unsat_init_core sys context requirements ;
@@ -354,8 +339,10 @@ let realizability_check in_sys sys =
 
       let premises' = Term.mk_and (fp :: free_of_uncontrollable_vars_at_1) in
 
+      let neg_region = SMTSolver.simplify_term solver (Term.negate valid_region) in
+
       let conclusion' =
-        Term.mk_and ((Term.negate valid_region) :: contains_uncontrollable_vars_at_1)
+        Term.mk_and (neg_region :: contains_uncontrollable_vars_at_1)
       in
 
       let ae_val_reponse' = QE.ae_val sys premises' vars_at_1 conclusion' in
@@ -367,8 +354,7 @@ let realizability_check in_sys sys =
         let context = Term.mk_and [premises'; conclusion'] in
 
         let requirements =
-          let fpl' = List.map (fun t -> Term.bump_state Numeral.one t) fpl in
-          List.rev_append fpl' contains_controllable_vars_at_1
+          (get_conjucts fp_at_1) @ contains_controllable_vars_at_1
         in
 
         compute_unsat_trans_core sys context requirements controllable_vars_at_1;
@@ -380,12 +366,16 @@ let realizability_check in_sys sys =
             "@[<hv>Violating region:@ @[<hv>%a@]@]@."
             Term.pp_print_term violating_region ;
 
-        loop ((Term.negate violating_region) :: fpl)
+        let fp' =
+          Term.mk_and [Term.negate violating_region; fp]
+          |> SMTSolver.simplify_term solver
+        in
+        loop fp'
       )
     )
   in
 
-  let res = loop [] in
+  let res = loop Term.t_true in
 
   QE.on_exit () ;
 
