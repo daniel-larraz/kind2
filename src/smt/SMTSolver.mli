@@ -243,6 +243,12 @@ val get_qe_expr : ?simpl:bool -> t -> SMTExpr.t -> Term.t list
 (** Apply quantifier elimination to a term *)
 val get_qe_term : ?simpl:bool -> t -> Term.t -> Term.t list
 
+(** Simplify a SMTExpr *)
+val simplify_expr : t -> SMTExpr.t -> Term.t
+
+(** Simplify a term *)
+val simplify_term : t -> Term.t -> Term.t
+
 (* 
    Local Variables:
    compile-command: "make -C .. -k"

@@ -1166,6 +1166,35 @@ let get_qe_term ?(simpl = false) solver quantified_term =
   get_qe_expr ~simpl:simpl solver (S.Conv.smtexpr_of_term quantified_term)
 
 
+let simplify_z3 solver expr =
+  (* Increment scope level *)
+  push solver;
+  assert_expr solver expr;
+  let res =
+    (* Execute custom command *)
+    let arg = "ctx-solver-simplify" in
+    match execute_custom_command solver "apply" [SMTExpr.ArgString arg] 1 with
+    | `Custom r ->
+       (* Take first goal *)
+       goals_to_terms solver (List.hd r) |> Term.mk_and
+    | r -> smt_error solver r
+  in
+  (* Decrement scope level to remove assertion *)
+  pop solver;
+  res
+
+let simplify_expr solver expr =
+  let module S = (val solver.solver_inst) in
+  (* Simplify is not part of the SMTLIB standard.
+     Until then, we handle each particular case here... *)
+  match solver.solver_kind with
+  | `Z3_SMTLIB -> simplify_z3 solver expr
+  | _ ->  (S.Conv.term_of_smtexpr expr)
+
+let simplify_term solver term =
+  let module S = (val solver.solver_inst) in
+  simplify_expr solver (S.Conv.smtexpr_of_term term)
+
 (* 
    Local Variables:
    compile-command: "make -C .. -k"
