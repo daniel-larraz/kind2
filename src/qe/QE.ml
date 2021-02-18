@@ -708,7 +708,7 @@ let generalize trans_sys uf_defs model elim term =
 
 type response = Valid of Term.t | Invalid of Term.t
 
-let ae_val trans_sys premise elim conclusion =
+let ae_val_gen trans_sys premise elim conclusion =
 
   (* Create new solver instance *)
   let solver =
@@ -763,7 +763,7 @@ let ae_val trans_sys premise elim conclusion =
               "Problem contains real valued variables, \
                switching off approximate QE";
 
-            Flags.QE.set_qe_method `Precise;
+            Flags.QE.set_qe_method `Impl;
 
             generalize
               trans_sys
@@ -794,6 +794,81 @@ let ae_val trans_sys premise elim conclusion =
   SMTSolver.delete_instance solver;
 
   res
+
+
+let ae_val_prec trans_sys premise elim conclusion =
+
+  (* Create new solver instance *)
+  let solver =
+    SMTSolver.create_instance
+      (TermLib.add_quantifiers (TransSys.get_logic trans_sys))
+      (Flags.Smt.solver ())
+  in
+
+  TransSys.define_and_declare_of_bounds
+    trans_sys
+    (SMTSolver.define_fun solver)
+    (SMTSolver.declare_fun solver)
+    (SMTSolver.declare_sort solver)
+    Numeral.zero Numeral.one;
+
+  SMTSolver.push solver;
+
+  SMTSolver.assert_term solver premise ;
+
+  let res =
+
+    if not (SMTSolver.check_sat solver) then (
+
+      Valid (Term.t_false)
+
+    )
+
+    else (
+
+      SMTSolver.assert_term solver conclusion;
+
+      if not (SMTSolver.check_sat solver) then
+
+        Invalid (Term.t_false)
+
+      else (
+
+        SMTSolver.pop solver;
+
+        let impl = Term.mk_implies [premise; conclusion] in
+
+        let ex_term = Term.mk_exists elim impl in
+
+        let term =
+          SMTSolver.get_qe_term ~z3_light:true solver ex_term
+          |> Term.mk_and
+        in
+
+        let simpl_term =
+          SMTSolver.simplify_term solver (Term.mk_and [premise; term])
+        in
+
+        SMTSolver.assert_term solver (Term.negate term) ;
+
+        if not (SMTSolver.check_sat solver) then
+          Valid simpl_term
+        else
+          Invalid simpl_term
+
+      )
+
+    )
+  in
+
+  SMTSolver.delete_instance solver;
+
+  res
+
+let ae_val trans_sys premise elim conclusion =
+  match Flags.QE.qe_method () with
+  | `Precise -> ae_val_prec trans_sys premise elim conclusion
+  | _ -> ae_val_gen trans_sys premise elim conclusion
 
 (* 
    Local Variables:
