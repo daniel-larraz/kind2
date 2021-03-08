@@ -139,35 +139,7 @@ let compute_and_print_core solver terms =
     (Lib.pp_print_list Term.pp_print_term "@,") unsat_core_terms
 
 
-let compute_unsat_init_core sys context requirements =
-  let solver =
-    SMTSolver.create_instance
-      ~produce_cores:true
-      ~produce_assignments:true
-      ~minimize_cores:true
-      (TSys.get_logic sys)
-      (Flags.Smt.solver ())
-  in
-
-  TransSys.define_and_declare_of_bounds
-    sys
-    (SMTSolver.define_fun solver)
-    (SMTSolver.declare_fun solver)
-    (SMTSolver.declare_sort solver)
-    Numeral.zero Numeral.one;
-
-  (* Terms in context should not participate in the unsat core,
-     but language allows input programs with guarantees that
-     constraints the environment
-   *)
-  let terms = context @ requirements in
-
-  compute_and_print_core solver terms ;
-
-  SMTSolver.delete_instance solver
-  
-
-let compute_unsat_trans_core sys context requirements ex_var_lst =
+let compute_unsat_core sys context requirements ex_var_lst =
   let solver =
     SMTSolver.create_instance
       ~produce_cores:true
@@ -316,17 +288,19 @@ let realizability_check in_sys sys =
       match ae_val_reponse' with
       | QE.Valid _ -> Realizable
       | QE.Invalid valid_region -> (
-        Debug.contractck
+        (*Debug.contractck
             "@[<hv>(INITIAL) Valid region:@ @[<hv>%a@]@]@."
-            Term.pp_print_term valid_region ;
+            Term.pp_print_term valid_region ;*)
 
-        let context = free_of_controllable_vars_at_0 in
+        let neg_region = SMTSolver.simplify_term solver (Term.negate valid_region) in
+
+        let context = Term.mk_and [premises'; neg_region] in
 
         let requirements =
           (get_conjucts fp) @ contains_controllable_vars_at_0
         in
 
-        compute_unsat_init_core sys context requirements ;
+        compute_unsat_core sys context requirements controllable_vars_at_0;
 
         Unrealizable
       )
@@ -357,7 +331,7 @@ let realizability_check in_sys sys =
           (get_conjucts fp_at_1) @ contains_controllable_vars_at_1
         in
 
-        compute_unsat_trans_core sys context requirements controllable_vars_at_1;
+        compute_unsat_core sys context requirements controllable_vars_at_1;
 
         Unrealizable
       )
