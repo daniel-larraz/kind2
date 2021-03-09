@@ -40,9 +40,10 @@ let term_partition var_lst term_lst =
     |> VS.is_empty
   )
 
-let get_conjucts term =
+let rec get_conjucts term =
   match Term.destruct term with
-  | Term.T.App (s, args) when s == Symbol.s_and -> args
+  | Term.T.App (s, args) when s == Symbol.s_and ->
+     List.map get_conjucts args |> List.flatten
   | _ -> [term]
 
 
@@ -116,15 +117,18 @@ let compute_and_print_core solver terms =
       let actlit_uf = Actlit.fresh_actlit () in
       SMTSolver.declare_fun solver actlit_uf;
       let actlit = Actlit.term_of_actlit actlit_uf in
-      actlit, Term.mk_implies [actlit; t]
+      actlit, t
     )
   in
 
-  let actlits, impls = List.split actlit_term_map in
+  let impls =
+    List.map (fun (al, t) -> Term.mk_implies [al; t]) actlit_term_map
+  in
 
   SMTSolver.assert_term solver (Term.mk_and impls) ;
 
   let unsat_core_lits =
+    let actlits = List.map fst actlit_term_map in
     SMTSolver.check_sat_assuming solver
       (fun _ -> assert false)
       (fun _ -> SMTSolver.get_unsat_core_lits solver)

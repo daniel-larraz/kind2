@@ -649,6 +649,7 @@ let run in_sys =
       match ISys.contract_check_params in_sys with
       | [] -> KEvent.log L_note "No imported nodes found, skipping contract check."
       | params -> (
+        Stat.start_timer Stat.analysis_time ;
         params |> List.iter (fun (param, has_contract) ->
           let result =
             if not has_contract then
@@ -665,11 +666,9 @@ let run in_sys =
           let scope = (Analysis.info_of_param param).top in
           match result with
           | Realizable ->
-              KEvent.log L_note "System %a is Realizable"
-                Scope.pp_print_scope scope;
+              KEvent.log_realizable L_warn scope;
           | Unrealizable ->
-              KEvent.log L_note "System %a is Unrealizable"
-                Scope.pp_print_scope scope;
+            KEvent.log_unrealizable L_warn scope;
           | Unknown ->
               KEvent.log L_note 
                 "Could not determine whether system %a is realizable or not"
