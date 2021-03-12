@@ -683,10 +683,11 @@ function
           |> (fun sv_map ->
             List.fold_left
               (fun sv_map (sv, deps) ->
-                try
-                  SVM.add sv (SVS.union (SVM.find sv sv_map) deps) sv_map
-                with Not_found ->
-                  SVM.add sv deps sv_map
+                SVM.update sv (function
+                  | None -> Some deps
+                  | Some deps' -> Some (SVS.union deps deps')
+                )
+                sv_map
               )
               sv_map
               tras_node_deps

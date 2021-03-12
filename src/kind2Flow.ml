@@ -565,7 +565,7 @@ let analyze msg_setup save_results ignore_props stop_if_falsified modules in_sys
   ) ;
 
   (* Issue analysis end notification. *)
-  KEvent.log_analysis_end result ;
+  KEvent.log_analysis_end () ;
   (* Issue analysis outcome. *)
   KEvent.log L_info "Result: %a" Analysis.pp_print_result result
 
@@ -640,6 +640,9 @@ let run in_sys =
   (* Only the contract checker is active.*)
   | [m] when m = `CONTRACTCK -> (
 
+    (* If Z3 is used for contract checking, use qe-light strategy *)
+    Flags.Smt.set_z3_qe_light true ;
+
     try (
       let msg_setup = KEvent.setup () in
       KEvent.set_module `CONTRACTCK ;
@@ -713,9 +716,7 @@ let run in_sys =
         PostAnalysis.run_mcs_post_analysis in_sys param
           (analyze msg_setup false) sys |> ignore ;
 
-        Stat.get_float Stat.analysis_time
-        |> Anal.mk_result param sys
-        |> KEvent.log_analysis_end
+        KEvent.log_analysis_end ()
       in
       List.iter run_mcs params ;
       post_clean_exit_without_result `Supervisor Exit

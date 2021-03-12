@@ -105,7 +105,7 @@ val log_analysis_start : TransSys.t -> Analysis.param -> unit
 
 (** Logs the end of an analysis.
     [log_analysis_start result] logs the end of an analysis. *)
-val log_analysis_end : Analysis.result -> unit
+val log_analysis_end : unit -> unit
 
 (** Logs the start of a post-analysis treatment. Arguments:
 * name of the treatment (concise, for XML)

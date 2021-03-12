@@ -1492,7 +1492,7 @@ let log_analysis_start sys param =
 
 (** Logs the end of an analysis.
     [log_analysis_start result] logs the end of an analysis. *)
-let log_analysis_end result =
+let log_analysis_end () =
   if Flags.log_level () <> L_off then begin
     match get_log_format () with
     | F_pt -> ()

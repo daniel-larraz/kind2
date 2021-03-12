@@ -841,7 +841,7 @@ let ae_val_prec trans_sys premise elim conclusion =
         let ex_term = Term.mk_exists elim impl in
 
         let term =
-          SMTSolver.get_qe_term ~z3_light:true solver ex_term
+          SMTSolver.get_qe_term solver ex_term
           |> Term.mk_and
         in
 
@@ -866,9 +866,10 @@ let ae_val_prec trans_sys premise elim conclusion =
   res
 
 let ae_val trans_sys premise elim conclusion =
-  match Flags.QE.qe_method () with
-  | `Precise -> ae_val_prec trans_sys premise elim conclusion
-  | _ -> ae_val_gen trans_sys premise elim conclusion
+  if Flags.QE.ae_val_use_ctx () then
+    ae_val_prec trans_sys premise elim conclusion
+  else
+    ae_val_gen trans_sys premise elim conclusion
 
 (* 
    Local Variables:
