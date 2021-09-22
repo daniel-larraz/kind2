@@ -1055,18 +1055,18 @@ module Contracts = struct
 
   let assumption_gen_default = false
   let assumption_gen = ref assumption_gen_default
-  (*let _ = add_spec
+  let _ = add_spec
     "--assumption_gen"
     (bool_arg assumption_gen)
     (fun fmt ->
       Format.fprintf fmt
       "@[<v>\
-        For each falsified property, it looks for an assumption@ \
-        that blocks all possible violations of the property.@ \
+        Generates an assumption that blocks all possible violations of@ \
+        the invalid properties.@ \
         Default: %a\
       @]"
       fmt_bool assumption_gen_default
-    )*)
+    )
   let assumption_gen () = !assumption_gen
 
   let assump_include_outputs_default = true
@@ -1084,6 +1084,23 @@ module Contracts = struct
       fmt_bool assump_include_outputs_default
     )*)
   let assump_include_outputs () = !assump_include_outputs
+
+
+  let assumption_gen_iter_default = 1
+  let assumption_gen_iter = ref assumption_gen_iter_default
+  let _ = add_spec
+    "--assumption_gen_iter"
+    (Arg.Int (fun n -> assumption_gen_iter := n))
+    (fun fmt ->
+      Format.fprintf fmt
+      "@[<v>\
+        Controls the number of iterations used for the generalization of
+        the assumption candidate.@ \
+        Default: %d\
+      @]"
+      assumption_gen_iter_default
+    )
+  let assumption_gen_iter () = !assumption_gen_iter
 
 
   let refinement_default = true
