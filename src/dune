@@ -2,6 +2,29 @@
  (public_name kind2)
  (libraries kind2dev)
  (modules kind2)
+ (flags (:standard
+         -noautolink
+         -cclib -Wl,-Bstatic
+         
+         -cclib -lzmq_stubs 
+         -cclib -lzmq 
+         -cclib -lnorm
+         -cclib -lprotolib
+         -cclib -lpgm 
+        
+         -cclib -lsodium  
+         -cclib -lstdint_stubs 
+         -cclib -lthreadsnat          
+         -cclib -lunix 
+         -cclib -lcamlstr  
+         -cclib -lnums 
+         -cclib -Wl,-Bdynamic
+         -cclib -lpthread  
+         -cclib -lstdc++
+         -cclib -lgssapi_krb5
+         
+                  
+ ))
  (link_flags (:include %{env:link_flags=dune.default_lflags}))
 )
 
