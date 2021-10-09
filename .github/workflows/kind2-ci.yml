@@ -15,10 +15,6 @@ jobs:
             pkg_update: brew update
             z3_install: brew install z3
             zmq_install: brew install zmq
-          - os: ubuntu-20.04
-            pkg_update: sudo apt-get update -y
-            z3_install: sudo apt-get install -y z3
-            zmq_install: sudo apt-get install -y libzmq3-dev
 
     runs-on: ${{ matrix.os }}
 
