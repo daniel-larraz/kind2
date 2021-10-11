@@ -3,10 +3,6 @@ name: Workflow Testing
 on:
   push
 
-env:
-  ocaml-version: '4.12.0'
-  macos-version: 'macos-10.15'
-
 jobs:
   kind2-linux-bin:
     #if: github.repository == 'kind2-mc/kind2'
@@ -51,7 +47,12 @@ jobs:
 
   kind2-macos-bin:
     #if: github.repository == 'kind2-mc/kind2'
-    runs-on: ${{ env.macos-version }}
+    strategy:
+      matrix:
+        ocaml-version: [ 4.12.0 ]
+        os: [ macos-10.15 ]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
     - name: Checkout code
@@ -61,12 +62,12 @@ jobs:
       uses: actions/cache@v2
       with:
         path: ~/.opam
-        key: ${{ env.macos-version }}-opam-${{ env.ocaml-version }}
+        key: ${{ matrix.os }}-opam-${{ matrix.ocaml-version }}
 
-    - name: Set up OCaml ${{ env.ocaml-version }}
+    - name: Set up OCaml ${{ matrix.ocaml-version }}
       uses: ocaml/setup-ocaml@v2
       with:
-        ocaml-compiler: ${{ env.ocaml-version }}
+        ocaml-compiler: ${{ matrix.ocaml-version }}
 
     - name: Install Kind2 OCaml dependencies
       run: opam install -y . --deps-only
@@ -83,7 +84,7 @@ jobs:
     - name: Upload Kind 2 binary
       uses: actions/upload-artifact@v2
       with:
-        name: ${{ env.macos-version }}
+        name: ${{ matrix.os }}
         path: bin/kind2
 
   kind2-testing:
