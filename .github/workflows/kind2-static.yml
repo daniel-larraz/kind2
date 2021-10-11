@@ -78,9 +78,29 @@ jobs:
     - name: Strip binary
       run: strip bin/kind2
 
+    - name: Dynamic libraries
+      run: otool -L bin/kind2
+
     - name: Upload Kind 2 binary
       uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.os }}
         path: bin/kind2
 
+  kind2-testing:
+    runs-on: macos-10.15
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install Z3
+      run: brew install z3
+
+    - name: Download binary
+      uses: actions/download-artifact@v2
+      with:
+        name: macos-10.15
+
+    - name: Run regression tests
+      run: ./tests/run.sh ./tests/regression ./kind2 --timeout 42
