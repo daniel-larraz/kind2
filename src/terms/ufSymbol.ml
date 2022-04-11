@@ -23,11 +23,7 @@ open Lib
 (* Types and hash-consing                                                *)
 (* ********************************************************************* *)
 
-
-(* Using strong (as opposed to weak) hash-consing because the table is used for
-   memoization *)
-module H = HashconsStrong
-
+module H = Hashcons
 
 (* Uninterpreted symbol to be hash-consed *)
 type uf_symbol = string 
