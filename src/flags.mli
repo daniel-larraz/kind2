@@ -246,6 +246,7 @@ module Smt : sig
     | `cvc5_SMTLIB
     | `MathSAT_SMTLIB
     | `OpenSMT_SMTLIB
+    | `SMTInterpol_SMTLIB
     | `Yices_SMTLIB
     | `Yices_native
     | `Z3_SMTLIB
@@ -290,8 +291,11 @@ module Smt : sig
   (** Executable of MathSAT solver *)
   val mathsat_bin : unit -> string
 
-  (** JAR of OpenSMT solver *)
+  (** Executable of OpenSMT solver *)
   val opensmt_bin : unit -> string
+
+  (** JAR of SMTInterpol solver *)
+  val smtinterpol_jar : unit -> string
 
   (** Executable of Yices solver *)
   val yices_bin : unit -> string

@@ -121,6 +121,7 @@ module Smt = struct
     | `cvc5_SMTLIB
     | `MathSAT_SMTLIB
     | `OpenSMT_SMTLIB
+    | `SMTInterpol_SMTLIB
     | `Yices_SMTLIB
     | `Yices_native
     | `Z3_SMTLIB
@@ -130,6 +131,7 @@ module Smt = struct
     | "Z3" -> `Z3_SMTLIB
     | "cvc5" -> `cvc5_SMTLIB
     | "MathSAT" ->  `MathSAT_SMTLIB
+    | "SMTInterpol" -> `SMTInterpol_SMTLIB
     | "OpenSMT" -> `OpenSMT_SMTLIB
     | "Boolector" -> `Boolector_SMTLIB
     | "Yices2" -> `Yices_SMTLIB
@@ -140,11 +142,12 @@ module Smt = struct
     | `cvc5_SMTLIB -> "cvc5"
     | `MathSAT_SMTLIB -> "MathSAT"
     | `OpenSMT_SMTLIB -> "OpenSMT"
+    | `SMTInterpol_SMTLIB -> "SMTInterpol"
     | `Yices_SMTLIB -> "Yices2"
     | `Yices_native -> "Yices"
     | `Z3_SMTLIB -> "Z3"
     | `detect -> "detect"
-  let solver_values = "Z3, cvc5, MathSAT, OpenSMT, Boolector, Yices2, Yices"
+  let solver_values = "Z3, cvc5, MathSAT, SMTInterpol, OpenSMT, Boolector, Yices2, Yices"
   let solver_default = `detect
   let solver = ref solver_default
   let _ = add_spec
@@ -323,6 +326,20 @@ module Smt = struct
   let set_opensmt_bin str = opensmt_bin := str
   let opensmt_bin () = !opensmt_bin
 
+  (* SMTInterpol JAR. *)
+  let smtinterpol_jar_default = "smtinterpol.jar"
+  let smtinterpol_jar = ref smtinterpol_jar_default
+  let _ = add_spec
+    "--smtinterpol_jar"
+    (Arg.Set_string smtinterpol_jar)
+    (fun fmt ->
+      Format.fprintf fmt
+        "@[<v>JAR of SMTInterpol solver@ Default: \"%s\"@]"
+        smtinterpol_jar_default
+    )
+  let set_smtinterpol_jar str = smtinterpol_jar := str
+  let smtinterpol_jar () = !smtinterpol_jar
+
   (* Yices 2 binary. *)
   let yices2smt2_bin_default = "yices-smt2"
   let yices2smt2_bin = ref yices2smt2_bin_default
@@ -417,6 +434,9 @@ module Smt = struct
     (* User chose MathSAT *)
     | `MathSAT_SMTLIB ->
       find_solver ~fail:true "MathSAT" (mathsat_bin ()) |> ignore
+    (* User chose SMTInterpol *)
+    | `SMTInterpol_SMTLIB ->
+      find_solver ~fail:true "SMTInterpol" (smtinterpol_jar ()) |> ignore
     (* User chose OpenSMT *)
     | `OpenSMT_SMTLIB ->
       find_solver ~fail:true "OpenSMT" (opensmt_bin ()) |> ignore
@@ -450,6 +470,11 @@ module Smt = struct
         let exec = find_solver ~fail:false "MathSAT" (mathsat_bin ()) in
         set_solver `MathSAT_SMTLIB;
         set_mathsat_bin exec;
+      with Not_found ->
+      try
+        let exec = find_solver ~fail:false "SMTInterpol" (smtinterpol_jar ()) in
+        set_solver `SMTInterpol_SMTLIB;
+        set_smtinterpol_jar exec;
       with Not_found ->
       try
         let exec = find_solver ~fail:false "OpenSMT" (opensmt_bin ()) in
@@ -3534,6 +3559,12 @@ let solver_dependant_actions solver =
   | `OpenSMT_SMTLIB -> (
     if Smt.check_sat_assume () then (
       Log.log L_warn "Detected OpenSMT: disabling check_sat_assume";
+      Smt.set_check_sat_assume false
+    )
+  )
+  | `SMTInterpol_SMTLIB -> (
+    if Smt.check_sat_assume () then (
+      Log.log L_warn "Detected SMTInterpol: disabling check_sat_assume";
       Smt.set_check_sat_assume false
     )
   )
