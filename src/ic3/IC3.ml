@@ -775,11 +775,11 @@ let abstr_simulate trace trans_sys raise_cex =
 
       | None ->
 
-        let solver = 
+        let solver =
           SMTSolver.create_instance
             ~produce_interpolants:true
             (TransSys.get_logic trans_sys)
-            `Z3_SMTLIB
+            (Flags.Smt.get_itp_solver ())
         in   
 
         TransSys.define_and_declare_of_bounds
@@ -873,10 +873,13 @@ let abstr_simulate trace trans_sys raise_cex =
       List.mapi
         (fun i t -> Term.bump_state (Numeral.of_int (~-(i+1))) t)
         interpolants
-
       |> 
       List.filter
-        (fun t -> not (Term.equal t Term.t_false))
+        (fun t -> not (t == Term.t_false || t == Term.t_true))
+      |>
+      List.fold_left
+        (fun acc interp -> Term.TermSet.union (Term.get_atoms interp) acc)
+        Term.TermSet.empty
     in
 
     interpolants
@@ -1508,7 +1511,10 @@ let rec block solver input_sys aparam trans_sys prop_set term_tbl predicates =
 
                      let interpolants = abstr_simulate cex_trace trans_sys raise_cex in
 
-
+                     let new_interpolants =
+                      Term.TermSet.(diff interpolants (of_list predicates))
+                      |> Term.TermSet.elements
+                     in
 
                      List.iteri
                        (fun _ t ->
@@ -1524,7 +1530,7 @@ let rec block solver input_sys aparam trans_sys prop_set term_tbl predicates =
                               [Term.bump_state (Numeral.one) t;
                                Term.bump_state (Numeral.of_int 3) t]);
                        )
-                       interpolants;
+                       new_interpolants;
 
 
                      block
@@ -1534,7 +1540,7 @@ let rec block solver input_sys aparam trans_sys prop_set term_tbl predicates =
                        trans_sys
                        prop_set
                        term_tbl
-                       (interpolants @ predicates)
+                       (new_interpolants @ predicates)
                        []
                        (List.rev (List.map (fun (_,s) -> s) trace))
 
@@ -3145,11 +3151,12 @@ let main_ic3 input_sys aparam trans_sys =
 
       | `IA ->
 
-        (TransSys.init_of_bound None trans_sys Numeral.zero)
-        ::
-        List.map
-          (fun (_,t) -> t)
+        let init = TransSys.init_of_bound None trans_sys Numeral.zero in
+        List.fold_left
+          (fun acc (_,t) -> Term.TermSet.add t acc)
+          (init |> Term.get_atoms |> Term.TermSet.add init)
           trans_sys_props
+        |> Term.TermSet.elements
 
       | `None ->
 

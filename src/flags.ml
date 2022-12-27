@@ -198,6 +198,43 @@ module Smt = struct
   let set_qe_solver s = qe_solver := s
   let qe_solver () = !qe_solver
 
+  type itp_solver = [
+    | `SMTInterpol_SMTLIB
+    | `OpenSMT_SMTLIB
+    | `detect
+  ]
+  let itp_solver_of_string = function
+    | "SMTInterpol" -> `SMTInterpol_SMTLIB
+    | "OpenSMT" -> `OpenSMT_SMTLIB
+    | _ -> Arg.Bad "Bad value for --smt_itp_solver" |> raise
+  let string_of_itp_solver = function
+    | `SMTInterpol_SMTLIB -> "SMTInterpol"
+    | `OpenSMT_SMTLIB -> "OpenSMT"
+    | `detect -> "detect"
+  let itp_solver_values = "SMTInterpol, OpenSMT"
+  let itp_solver_default = `detect
+  let itp_solver = ref qe_solver_default
+  let _ = add_spec
+    "--smt_itp_solver"
+    (Arg.String (fun str -> itp_solver := itp_solver_of_string str))
+    (fun fmt ->
+      Format.fprintf fmt
+        "@[<v>\
+          where <string> can be %s@ \
+          Set the SMT solver used for interpolation@ \
+          Default: %s\
+        @]"
+        itp_solver_values
+        (string_of_itp_solver itp_solver_default)
+    )
+  let set_itp_solver s = itp_solver := s
+  let itp_solver () = !itp_solver
+  let get_itp_solver () =
+    match itp_solver () with
+    | `SMTInterpol_SMTLIB -> `SMTInterpol_SMTLIB
+    | `OpenSMT_SMTLIB -> `OpenSMT_SMTLIB
+    | _ -> failwith "No ITP solver found"
+
   (* Active SMT logic. *)
   type logic = [
     `None | `detect | `Logic of string
@@ -436,7 +473,10 @@ module Smt = struct
       find_solver ~fail:true "MathSAT" (mathsat_bin ()) |> ignore
     (* User chose SMTInterpol *)
     | `SMTInterpol_SMTLIB ->
-      find_solver ~fail:true "SMTInterpol" (smtinterpol_jar ()) |> ignore
+      let full_path =
+        find_solver ~fail:true "SMTInterpol" (smtinterpol_jar ())
+      in
+      set_smtinterpol_jar full_path
     (* User chose OpenSMT *)
     | `OpenSMT_SMTLIB ->
       find_solver ~fail:true "OpenSMT" (opensmt_bin ()) |> ignore
@@ -522,9 +562,39 @@ module Smt = struct
           set_qe_solver `cvc5_SMTLIB;
           set_cvc5_bin exec;
         with Not_found -> () (* Ẃe keep `detect to know no qe solver was found *)
+
+  let check_itp_solver () = match itp_solver () with
+    (* User chose SMTInterpol *)
+    | `OpenSMT_SMTLIB -> (
+      match solver () with
+      | `OpenSMT_SMTLIB -> ()
+      | _ -> find_solver ~fail:true "OpenSMT" (opensmt_bin ()) |> ignore
+    )
+    | `SMTInterpol_SMTLIB -> (
+      match solver () with
+      | `SMTInterpol_SMTLIB -> ()
+      | _ ->
+        let full_path =
+          find_solver ~fail:true "SMTInterpol" (smtinterpol_jar ())
+        in
+        set_smtinterpol_jar full_path
+    )
+    | `detect ->
+      match solver () with
+      | `OpenSMT_SMTLIB -> set_itp_solver `OpenSMT_SMTLIB
+      | `SMTInterpol_SMTLIB -> set_itp_solver `SMTInterpol_SMTLIB
+      | _ ->
+        try
+          let exec = find_solver ~fail:false "SMTInterpol" (smtinterpol_jar ()) in
+          set_itp_solver `SMTInterpol_SMTLIB;
+          set_smtinterpol_jar exec;
+        with Not_found ->
+        try
+          let exec = find_solver ~fail:false "OpenSMT" (opensmt_bin ()) in
+          set_itp_solver `OpenSMT_SMTLIB;
+          set_opensmt_bin exec;
+        with Not_found -> () (* Ẃe keep `detect to know no itp solver was found *)
 end
-
-
 
 
 (* BMC and k-induction flags. *)
@@ -3796,6 +3866,8 @@ let parse_argv () =
   Smt.check_smtsolver ();
 
   Smt.check_qe_solver ();
+
+  Smt.check_itp_solver ();
 
   (* Finalize the list of enabled module. *)
   Global.finalize_enabled ();
