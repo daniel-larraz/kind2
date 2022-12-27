@@ -117,31 +117,34 @@ module Smt = struct
 
   (* Active SMT solver. *)
   type solver = [
-    | `MathSAT_SMTLIB
     | `Boolector_SMTLIB
-    | `Z3_SMTLIB
     | `cvc5_SMTLIB
+    | `MathSAT_SMTLIB
+    | `OpenSMT_SMTLIB
     | `Yices_SMTLIB
     | `Yices_native
+    | `Z3_SMTLIB
     | `detect
   ]
   let solver_of_string = function
-    | "MathSAT" ->  `MathSAT_SMTLIB
-    | "Boolector" -> `Boolector_SMTLIB
     | "Z3" -> `Z3_SMTLIB
     | "cvc5" -> `cvc5_SMTLIB
+    | "MathSAT" ->  `MathSAT_SMTLIB
+    | "OpenSMT" -> `OpenSMT_SMTLIB
+    | "Boolector" -> `Boolector_SMTLIB
     | "Yices2" -> `Yices_SMTLIB
     | "Yices" -> `Yices_native
     | _ -> Arg.Bad "Bad value for --smt_solver" |> raise
   let string_of_solver = function
-    | `MathSAT_SMTLIB -> "MathSAT"
     | `Boolector_SMTLIB -> "Boolector"
-    | `Z3_SMTLIB -> "Z3"
     | `cvc5_SMTLIB -> "cvc5"
+    | `MathSAT_SMTLIB -> "MathSAT"
+    | `OpenSMT_SMTLIB -> "OpenSMT"
     | `Yices_SMTLIB -> "Yices2"
     | `Yices_native -> "Yices"
+    | `Z3_SMTLIB -> "Z3"
     | `detect -> "detect"
-  let solver_values = "Z3, cvc5, Yices, Yices2, Boolector, MathSAT"
+  let solver_values = "Z3, cvc5, MathSAT, OpenSMT, Boolector, Yices2, Yices"
   let solver_default = `detect
   let solver = ref solver_default
   let _ = add_spec
@@ -264,21 +267,6 @@ module Smt = struct
   let set_short_names b = short_names := b
   let short_names () = !short_names
 
-
-  (* MathSAT binary. *)
-  let mathsat_bin_default = "mathsat"
-  let mathsat_bin = ref mathsat_bin_default
-  let _ = add_spec
-    "--mathsat_bin"
-    (Arg.Set_string mathsat_bin)
-    (fun fmt ->
-      Format.fprintf fmt
-        "@[<v>Executable of MathSAT solver@ Default: \"%s\"@]"
-        mathsat_bin_default
-    )
-  let set_mathsat_bin str = mathsat_bin := str
-  let mathsat_bin () = !mathsat_bin
-
   (* Boolector binary. *)
   let boolector_bin_default = "boolector"
   let boolector_bin = ref boolector_bin_default
@@ -292,24 +280,6 @@ module Smt = struct
     )
   let set_boolector_bin str = boolector_bin := str
   let boolector_bin () = !boolector_bin
-
-  (* Z3 binary. *)
-  let z3_bin_default = "z3"
-  let z3_bin = ref z3_bin_default
-  let _ = add_spec
-    "--z3_bin"
-    (Arg.Set_string z3_bin)
-    (fun fmt ->
-      Format.fprintf fmt
-        "@[<v>Executable of Z3 solver@ Default: \"%s\"@]"
-        z3_bin_default
-    )
-  let set_z3_bin str = z3_bin := str
-  let z3_bin () = ! z3_bin
-
-  let z3_qe_light = ref false
-  let set_z3_qe_light b = z3_qe_light := b
-  let z3_qe_light () = !z3_qe_light
 
   (* cvc5 binary. *)
   let cvc5_bin_default = "cvc5"
@@ -325,19 +295,33 @@ module Smt = struct
   let set_cvc5_bin str = cvc5_bin := str
   let cvc5_bin () = !cvc5_bin
 
-  (* Yices binary. *)
-  let yices_bin_default = "yices"
-  let yices_bin = ref yices_bin_default
+(* MathSAT binary. *)
+  let mathsat_bin_default = "mathsat"
+  let mathsat_bin = ref mathsat_bin_default
   let _ = add_spec
-    "--yices_bin"
-    (Arg.Set_string yices_bin)
+    "--mathsat_bin"
+    (Arg.Set_string mathsat_bin)
     (fun fmt ->
       Format.fprintf fmt
-        "@[<v>Executable of Yices solver@ Default: \"%s\"@]"
-        yices_bin_default
+        "@[<v>Executable of MathSAT solver@ Default: \"%s\"@]"
+        mathsat_bin_default
     )
-  let set_yices_bin str = yices_bin := str
-  let yices_bin () = !yices_bin
+  let set_mathsat_bin str = mathsat_bin := str
+  let mathsat_bin () = !mathsat_bin
+
+  (* OpenSMT binary. *)
+  let opensmt_bin_default = "opensmt"
+  let opensmt_bin = ref opensmt_bin_default
+  let _ = add_spec
+    "--opensmt_bin"
+    (Arg.Set_string opensmt_bin)
+    (fun fmt ->
+      Format.fprintf fmt
+        "@[<v>Executable of OpenSMT solver@ Default: \"%s\"@]"
+        opensmt_bin_default
+    )
+  let set_opensmt_bin str = opensmt_bin := str
+  let opensmt_bin () = !opensmt_bin
 
   (* Yices 2 binary. *)
   let yices2smt2_bin_default = "yices-smt2"
@@ -357,6 +341,38 @@ module Smt = struct
   let set_yices2_smt2models b = yices2_smt2models := b
   let yices2_smt2models () = !yices2_smt2models
 
+  (* Yices binary. *)
+  let yices_bin_default = "yices"
+  let yices_bin = ref yices_bin_default
+  let _ = add_spec
+    "--yices_bin"
+    (Arg.Set_string yices_bin)
+    (fun fmt ->
+      Format.fprintf fmt
+        "@[<v>Executable of Yices solver@ Default: \"%s\"@]"
+        yices_bin_default
+    )
+  let set_yices_bin str = yices_bin := str
+  let yices_bin () = !yices_bin
+
+  (* Z3 binary. *)
+  let z3_bin_default = "z3"
+  let z3_bin = ref z3_bin_default
+  let _ = add_spec
+    "--z3_bin"
+    (Arg.Set_string z3_bin)
+    (fun fmt ->
+      Format.fprintf fmt
+        "@[<v>Executable of Z3 solver@ Default: \"%s\"@]"
+        z3_bin_default
+    )
+  let set_z3_bin str = z3_bin := str
+  let z3_bin () = ! z3_bin
+
+  let z3_qe_light = ref false
+  let set_z3_qe_light b = z3_qe_light := b
+  let z3_qe_light () = !z3_qe_light
+  
   (* Activates logging of SMT interactions. *)
   let trace_default = false
   let trace = ref trace_default
@@ -392,18 +408,21 @@ module Smt = struct
   
   (* Check which SMT solver is available *)
   let check_smtsolver () = match solver () with
-    (* User chose MathSAT *)
-    | `MathSAT_SMTLIB ->
-      find_solver ~fail:true "MathSAT" (mathsat_bin ()) |> ignore
-    (* User chose Boolector *)
-    | `Boolector_SMTLIB ->
-      find_solver ~fail:true "Boolector" (boolector_bin ()) |> ignore
     (* User chose Z3 *)
     | `Z3_SMTLIB ->
       find_solver ~fail:true "Z3" (z3_bin ()) |> ignore
     (* User chose cvc5 *)
     | `cvc5_SMTLIB ->
       find_solver ~fail:true "cvc5" (cvc5_bin ()) |> ignore
+    (* User chose MathSAT *)
+    | `MathSAT_SMTLIB ->
+      find_solver ~fail:true "MathSAT" (mathsat_bin ()) |> ignore
+    (* User chose OpenSMT *)
+    | `OpenSMT_SMTLIB ->
+      find_solver ~fail:true "OpenSMT" (opensmt_bin ()) |> ignore
+    (* User chose Boolector *)
+    | `Boolector_SMTLIB ->
+      find_solver ~fail:true "Boolector" (boolector_bin ()) |> ignore
     (* User chose Yices *)
     | `Yices_native ->
       find_solver ~fail:true "Yices" (yices_bin ()) |> ignore
@@ -428,6 +447,16 @@ module Smt = struct
         set_cvc5_bin exec;
       with Not_found ->
       try
+        let exec = find_solver ~fail:false "MathSAT" (mathsat_bin ()) in
+        set_solver `MathSAT_SMTLIB;
+        set_mathsat_bin exec;
+      with Not_found ->
+      try
+        let exec = find_solver ~fail:false "OpenSMT" (opensmt_bin ()) in
+        set_solver `OpenSMT_SMTLIB;
+        set_opensmt_bin exec;
+      with Not_found ->
+      try
         let exec = find_solver ~fail:false "Yices" (yices_bin ()) in
         set_solver `Yices_native;
         set_yices_bin exec;
@@ -436,11 +465,6 @@ module Smt = struct
         let exec = find_solver ~fail:false "Boolector" (boolector_bin ()) in
         set_solver `Boolector_SMTLIB;
         set_boolector_bin exec;
-      with Not_found ->
-      try
-        let exec = find_solver ~fail:false "MathSAT" (mathsat_bin ()) in
-        set_solver `MathSAT_SMTLIB;
-        set_mathsat_bin exec;
       with Not_found ->
         Log.log L_fatal "No SMT Solver found.";
         raise Error
@@ -3506,7 +3530,13 @@ let solver_dependant_actions solver =
           Log.log L_warn "Detected MathSAT: disabling ind_compress"
       )
     | None -> Log.log L_warn "Couldn't determine MathSAT version"
-  ) 
+  )
+  | `OpenSMT_SMTLIB -> (
+    if Smt.check_sat_assume () then (
+      Log.log L_warn "Detected OpenSMT: disabling check_sat_assume";
+      Smt.set_check_sat_assume false
+    )
+  )
   | `Z3_SMTLIB -> (
     let cmd = Format.asprintf "%s -version" (Smt.z3_bin ()) in
     match get_version false cmd with
