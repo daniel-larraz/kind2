@@ -3011,6 +3011,7 @@ module Global = struct
   type enable = kind_module list
   let kind_module_of_string = function
     | "IC3" -> `IC3
+    | "IC3IA" -> `IC3IA
     | "BMC" -> `BMC
     | "IND" -> `IND
     | "IND2" -> `IND2
@@ -3032,6 +3033,7 @@ module Global = struct
 
   let string_of_kind_module = function
     | `IC3 -> "IC3"
+    | `IC3IA -> "IC3IA"
     | `BMC -> "BMC"
     | `IND -> "IND"
     | `IND2 -> "IND2"
@@ -3056,7 +3058,7 @@ module Global = struct
       ) ^ "]"
     | [] -> "[]"
   let enable_values = [
-    `IC3 ; `BMC ; `IND ; `IND2 ;
+    `IC3 ; `IC3IA ; `BMC ; `IND ; `IND2 ;
     `INVGEN ; `INVGENOS ;
     `INVGENINT ; `INVGENINTOS ;
     `INVGENMACH ; `INVGENMACHOS ;
@@ -3068,7 +3070,7 @@ module Global = struct
   let disable_default_init = []
 
   let enable_default_after = [
-    `BMC ; `IND ; `IND2 ; `IC3 ;
+    `BMC ; `IND ; `IND2 ; `IC3 ; `IC3IA ;
     `INVGEN ; `INVGENOS ;
     (* `INVGENINT ; *) `INVGENINTOS ; `INVGENMACHOS ;
     (* `INVGENREAL ; *) `INVGENREALOS ;
