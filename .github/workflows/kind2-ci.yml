@@ -1,58 +1,45 @@
 
 name: Kind2 CI
 
-on:
-  pull_request:
-    branches: [ develop ]
-  push:
-    branches: [ develop ]
+on: push
 
 jobs:
-  kind2-build:
-    strategy:
-      matrix:
-        ocaml-version: [ 4.09.1 ]
-        os: [ ubuntu-20.04, macos-11 ]
-        include:
-          - os: macos-11
-            pkg_update: brew update
-            z3_install: brew install z3
-          - os: ubuntu-20.04
-            pkg_update: sudo apt-get update -y
-            z3_install: sudo apt-get install -y z3
-
-    runs-on: ${{ matrix.os }}
+  kind2-linux-bin:
+    if: github.repository == 'kind2-mc/kind2'
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Update package information
-      run: ${{ matrix.pkg_update }}
-
-    - name: Set up OCaml ${{ matrix.ocaml-version }}
-      uses: ocaml/setup-ocaml@v2
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
       with:
-        ocaml-compiler: ${{ matrix.ocaml-version }}
+        driver-opts: network=host
 
-    - name: Install Kind2 OCaml dependencies
-      run: opam install -y . --deps-only
+    - name: Build and push to local registry
+      uses: docker/build-push-action@v3
+      with:
+        file: docker/Dockerfile
+        context: ./
+        target: builder
+        push: true
+        tags: localhost:5000/name/kind2:latest
+    
+    - name: Extract kind 2 binary
+      id: extract
+      uses: shrink/actions-docker-extract@v2
+      with:
+        image: localhost:5000/name/kind2:latest
+        path: /home/opam/kind2-build/bin/kind2
 
-    - name: Build Kind2
-      run: opam exec make
-
-    - name: Install Z3
-      run: ${{ matrix.z3_install }}
-
-    - name: Install unit test dependencies
-      run: opam install ounit2
-
-    - name: Run ounit and regression tests
-      run: opam exec make test
-
-    - name: Upload kind2 artifact
-      if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    - name: Upload kind2 binary
       uses: actions/upload-artifact@v3
       with:
-        name: kind2-${{ matrix.os }}
-        path: bin/kind2
+        path: ${{ steps.extract.outputs.destination }}
+        name: linux

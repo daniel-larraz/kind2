@@ -262,10 +262,7 @@ let status_of_exn process status = function
   )
   (* Other exception, return exit status for error. *)
   | e -> (
-    InvarManager.print_stats !latest_trans_sys ;
-    KEvent.log L_fatal "Runtime error in %a: %s"
-      pp_print_kind_module process (Printexc.to_string e);
-    ExitCodes.error
+  raise e
   )
 
 (** Status corresponding to an exception based on an optional system. *)

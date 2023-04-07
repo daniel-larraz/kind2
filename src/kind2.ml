@@ -167,9 +167,7 @@ let main () =
     try
       Kind2Flow.run input_sys
     with e -> (
-      KEvent.log L_fatal "Caught unexpected exception: %s" (Printexc.to_string e) ;
-      KEvent.terminate_log () ;
-      exit ExitCodes.error
+      raise e
     )
 ;;
 
