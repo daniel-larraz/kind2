@@ -928,7 +928,7 @@ struct
          are provided, reinitializes and relaunches itself. *)
       init_and_run workers
 
-    with e -> on_exit e
+    with e -> raise e
                 
 
   let worker_thread (bg_ctx, sub_sock, push_sock) (proc, on_exit) =
