@@ -119,7 +119,8 @@ struct
       in
       let cex' =
         List.rev_map
-          (fun (sv, t) -> (StateVar.import sv, List.map Model.import_value t))
+          (fun (sv, t) ->
+            (StateVar.import sv, List.rev_map Model.import_value t |> List.rev))
           cex
         |> List.rev
       in
@@ -130,7 +131,8 @@ struct
       in
       let cex' =
         List.rev_map
-          (fun (sv, t) -> (StateVar.import sv, List.map Model.import_value t))
+          (fun (sv, t) ->
+            (StateVar.import sv, List.rev_map Model.import_value t |> List.rev))
           cex
         |> List.rev
       in
