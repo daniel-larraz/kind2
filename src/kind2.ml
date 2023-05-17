@@ -122,8 +122,12 @@ let setup : unit -> any_input = fun () ->
       )
                    
       | `Native -> KEvent.log L_debug "Native input detected";
-                   Input (InputSystem.read_input_native in_file)
-                   
+        Input (InputSystem.read_input_native in_file)
+
+      | `VMT ->
+        KEvent.log L_debug "VMT input detected";
+        Input (InputSystem.read_input_vmt in_file)
+             
       | `Horn   -> KEvent.log L_fatal "Horn clauses are not supported." ;
                    KEvent.terminate_log () ;
                    exit ExitCodes.error

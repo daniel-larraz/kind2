@@ -32,6 +32,7 @@ type _ t =
 | Lustre : (LustreNode.t S.t list * LustreGlobals.t * LustreAst.declaration list) -> LustreNode.t t
 (* Lustre systems supports multiple entry points (main subsystems) *)
 | Native : TransSys.t S.t -> TransSys.t t
+| VMT : TransSys.t S.t -> TransSys.t t
 | Horn : unit S.t -> unit t
 
 let read_input_lustre only_parse input_file =
@@ -44,6 +45,8 @@ let translate_contracts_lustre = ContractsToProps.translate_file
 
 let read_input_native input_file = Native (NativeInput.of_file input_file)
 
+let read_input_vmt input_file = VMT (VmtInput.of_file input_file)
+
 (*let read_input_horn input_file = assert false*)
 
 let ordered_scopes_of (type s) : s t -> Scope.t list = function
@@ -51,7 +54,8 @@ let ordered_scopes_of (type s) : s t -> Scope.t list = function
     S.all_subsystems_of_list main_subs
     |> List.map (fun { S.scope } -> scope)
 
-  | Native subsystem ->
+  | Native subsystem
+  | VMT subsystem ->
     S.all_subsystems subsystem
     |> List.map (fun { S.scope } -> scope)
 
@@ -68,6 +72,15 @@ let analyzable_subsystems (type s) : s t -> s SubSystem.t list = function
       Strategy.is_candidate_for_analysis (S.strategy_info_of s))
 
   | Native subsystem ->
+    let subsystems' =
+      if Flags.modular () then S.all_subsystems subsystem
+      else [subsystem]
+    in
+    subsystems'
+    |> List.filter (fun s ->
+      Strategy.is_candidate_for_analysis (S.strategy_info_of s))
+
+  | VMT subsystem ->
     let subsystems' =
       if Flags.modular () then S.all_subsystems subsystem
       else [subsystem]
@@ -149,6 +162,7 @@ let maximal_abstraction_for_testgen (type s)
   )
 
   | Native _ -> assert false
+  | VMT _ -> assert false
   | Horn _ -> assert false
 
 let next_analysis_of_strategy (type s)
@@ -180,7 +194,8 @@ let next_analysis_of_strategy (type s)
       )
   )
 
-  | Native subsystem -> (
+  | Native subsystem
+  | VMT subsystem -> (
     fun results ->
       let scope_and_strategy =
         List.map (fun ({ S.scope } as sub) ->
@@ -245,7 +260,8 @@ let mcs_params (type s) (input_system : s t) =
     subs
     |> List.filter (fun { S.has_impl } -> has_impl)
     |> List.map param_for_subsystem
-  | Native sub ->
+  | Native sub
+  | VMT sub ->
     let subs =
       if Flags.modular ()
       then
@@ -285,7 +301,7 @@ let contract_check_params (type s) (input_system : s t) =
     |> List.filter (fun s -> not s.S.has_impl)
     |> List.map param_for_subsystem
   )
-  | Native _ -> []
+  | Native _ | VMT _ -> []
   | Horn _ -> []
 
 let interpreter_param (type s) (input_system : s t) =
@@ -310,7 +326,8 @@ let interpreter_param (type s) (input_system : s t) =
         )
         Scope.Map.empty (S.all_subsystems sub)
       )
-    | Native ({S.scope} as sub) -> (scope,
+    | Native ({S.scope} as sub)
+    | VMT ({S.scope} as sub) -> (scope,
       List.fold_left (
         fun abs_map ({ S.scope; S.has_impl }) ->
           Scope.Map.add scope (not has_impl) abs_map
@@ -333,6 +350,7 @@ let retrieve_lustre_nodes (type s) : s t -> LustreNode.t list =
     let subsystems = S.all_subsystems_of_list main_subs in
     List.map (fun sb -> sb.S.source) subsystems
   | Native _ -> failwith "Unsupported input system: Native"
+  | VMT _ -> failwith "Unsupported input system: VMT"
   | Horn _ -> failwith "Unsupported input system: Horn"
   )
 
@@ -342,6 +360,7 @@ let retrieve_lustre_nodes_of_scope (type s) : s t -> Scope.t -> LustreNode.t lis
     S.find_subsystem_of_list main_subs scope |> N.nodes_of_subsystem
     )
   | Native _ -> failwith "Unsupported input system: Native"
+  | VMT _ -> failwith "Unsupported input system: VMT"
   | Horn _ -> failwith "Unsupported input system: Horn"
   )
 
@@ -352,7 +371,8 @@ let contain_partially_defined_system (type s) (in_sys : s t) (top : Scope.t) =
     |> List.exists (fun node -> N.partially_defined node)
   )
   | Native _ -> failwith "Unsupported input system: Native"
-  | Horn _ -> failwith "Unsupported input system: Native"
+  | VMT _ -> failwith "Unsupported input system: VMT"
+  | Horn _ -> failwith "Unsupported input system: Horn"
 
 let get_lustre_node (type s) (input_system : s t) scope =
   match input_system with
@@ -360,8 +380,7 @@ let get_lustre_node (type s) (input_system : s t) scope =
     try Some (S.find_subsystem_of_list main_subs scope).S.source
     with Not_found -> None
   )
-  | Native _ -> None
-  | Horn _ -> None
+  | _ -> None
 
 let pp_print_subsystems_debug (type s) : Format.formatter -> s t -> unit =
   (fun fmt in_sys ->
@@ -389,12 +408,14 @@ let lustre_definitions_of_state_var (type s) (input_system : s t) state_var =
   match input_system with
   | Lustre _ -> LustreNode.get_state_var_defs state_var
   | Native _ -> failwith "Unsupported input system: Native"
+  | VMT _ -> failwith "Unsupported input system: VMT"
   | Horn _ -> failwith "Unsupported input system: Horn"
 
 let lustre_source_ast (type s) (input_system : s t) =
   match input_system with
   | Lustre (_,_,ast) -> ast
   | Native _ -> failwith "Unsupported input system: Native"
+  | VMT _ -> failwith "Unsupported input system: VMT"
   | Horn _ -> failwith "Unsupported input system: Horn"
 
 (* Return a transition system with [top] as the main system, sliced to
@@ -423,6 +444,8 @@ let trans_sys_of_analysis (type s)
     )
 
   | Native sub -> (fun _ -> sub.SubSystem.source, Native sub)
+
+  | VMT sub -> (fun _ -> sub.SubSystem.source, VMT sub)
     
   | Horn _ -> assert false
 
@@ -446,6 +469,10 @@ let pp_print_path_pt
     ()
     (* assert false *)
 
+  | VMT _ ->
+    Format.eprintf "pp_print_path_pt not implemented for VMT input@.";
+    ()
+
   | Horn _ -> assert false
 
 
@@ -466,6 +493,9 @@ let pp_print_path_xml
     Format.eprintf "pp_print_path_xml not implemented for native input@.";
     assert false;
 
+  | VMT _ ->
+    Format.eprintf "pp_print_path_xml not implemented for VMT input@.";
+    assert false;
 
   | Horn _ -> assert false
 
@@ -487,6 +517,10 @@ let pp_print_path_json
     Format.eprintf "pp_print_path_json not implemented for native input@.";
     assert false;
 
+  | VMT _ ->
+    Format.eprintf "pp_print_path_json not implemented for VMT input@.";
+    assert false;
+
   | Horn _ -> assert false
 
 
@@ -506,6 +540,10 @@ let pp_print_path_in_csv
     Format.eprintf "pp_print_path_in_csv not implemented for native input";
     assert false
 
+  | VMT _ ->
+    Format.eprintf "pp_print_path_in_csv not implemented for VMT input";
+    assert false
+
   | Horn _ -> assert false
 
 
@@ -513,7 +551,7 @@ let reconstruct_lustre_streams (type s) (input_system : s t) state_vars =
   match input_system with 
   | Lustre (main_subs, _, _) ->
     LustrePath.reconstruct_lustre_streams main_subs state_vars
-  | Native _ -> assert false
+  | Native _ | VMT _ -> assert false
   | Horn _ -> assert false
 
 
@@ -566,8 +604,7 @@ let pp_print_term_as_expr
 let is_lustre_input (type s) (input_system : s t) =
   match input_system with 
   | Lustre _ -> true
-  | Native _ -> false
-  | Horn _ -> false
+  | _ -> false
 
 
 let slice_to_abstraction
@@ -721,6 +758,8 @@ let slice_to_abstraction_and_property
     (* No slicing in native input *)
     | Native subsystem -> Native subsystem
 
+    | VMT subsystem -> VMT subsystem
+
     (* No slicing in Horn input *)
     | Horn subsystem -> Horn subsystem
   )
@@ -735,6 +774,8 @@ fun sys top_scope target ->
     ) (S.find_subsystem_of_list main_subs top_scope).S.source
   | Native _ ->
     Format.printf "can't compile from native input: unsupported"
+  | VMT _ ->
+    Format.printf "can't compile from VMT input: unsupported"
   | Horn _ ->
     Format.printf "can't compile from horn clause input: unsupported"
 
@@ -751,6 +792,8 @@ fun sys top_scope target ->
     ) (S.find_subsystem_of_list main_subs top_scope).S.source
   | Native _ ->
     failwith "can't compile from native input: unsupported"
+  | VMT _ ->
+    failwith "can't compile from VMT input: unsupported"
   | Horn _ ->
     failwith "can't compile from horn clause input: unsupported"
 
@@ -775,6 +818,8 @@ fun sys -> fun top ->
   )
   | Native _ ->
     failwith "can't generate contracts from native input: unsupported"
+  | VMT _ ->
+    failwith "can't generate contracts from VMT input: unsupported"
   | Horn _ ->
     failwith "can't generate contracts from horn clause input: unsupported"
 
@@ -831,6 +876,8 @@ function
   )
 
   | Native _ -> raise (UnsupportedFileFormat "Native")
+
+  | VMT _ -> raise (UnsupportedFileFormat "VMT")
 
   | Horn _ -> raise (UnsupportedFileFormat "Horn")
 
