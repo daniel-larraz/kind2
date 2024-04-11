@@ -748,18 +748,27 @@ let next_analysis_and_system_of_strategy in_sys =
                     | None -> []
                     | Some actlits -> actlits
                   in
-                  let actlits =
-                    keep @ (ModelElement.get_actlits_of_scope unsat_core scope)
+                  let actlits_unsat_core =
+                    ModelElement.get_actlits_of_scope unsat_core scope
                   in
-                  let sys = Refinement.mk_refinement sys scope core actlits in
-                  (*Format.printf "%a" (TSys.pp_print_subsystems true) sys;*)
-                  let abstraction_map =
-                    Scope.Map.add scope true abstraction_map
+                  let actlits = keep @ actlits_unsat_core in
+                  let actlits_full_core =
+                    ModelElement.get_actlits_of_scope core scope
                   in
-                  let refinement_map' =
-                    Scope.Map.add scope actlits refinement_map'
-                  in
-                  sys, abstraction_map, refinement_map'
+                  if List.length actlits = List.length actlits_full_core then (
+                    sys, abstraction_map, refinement_map'
+                  )
+                  else (
+                    let sys = Refinement.mk_refinement sys scope core actlits in
+                    (*Format.printf "%a" (TSys.pp_print_subsystems true) sys;*)
+                    let abstraction_map =
+                      Scope.Map.add scope true abstraction_map
+                    in
+                    let refinement_map' =
+                      Scope.Map.add scope actlits refinement_map'
+                    in
+                    sys, abstraction_map, refinement_map'
+                  )
                 )
                 (sys, info.abstraction_map, info.refinement_map)
                 scopes
