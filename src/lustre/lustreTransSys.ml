@@ -2823,17 +2823,21 @@ let trans_sys_of_nodes
   (* Make sure top level system is not abstract
 
      Contracts would be trivially satisfied otherwise *)
-  ( match analysis_param with
+  (*( match analysis_param with
     | A.Interpreter _
     | A.ContractCheck _ -> ()
     | _ -> if A.param_scope_is_abstract analysis_param top then raise (
       Invalid_argument
         "trans_sys_of_nodes: Top-level system must not be abstract"
     )
-  );
+  );*)
 
   let subsystem' = SubSystem.find_subsystem_of_list subsystems top in
   
+  (*Format.printf "NODES BEFORE SLICING:@.";
+  let nodes = N.nodes_of_subsystem subsystem' in
+  List.iter (Format.printf "%a@." LustreNode.pp_print_node_debug) nodes;*)
+
   let { SubSystem.source = { N.name = top_name } } as subsystem' =
     let preserve_sig, slice_nodes =
       options.preserve_sig, options.slice_nodes
@@ -2851,6 +2855,12 @@ let trans_sys_of_nodes
   in
 
   let nodes = N.nodes_of_subsystem subsystem' in
+  (*Format.printf "NODES AFTER SLICING:@.";
+  List.iter (Format.printf "%a@." LustreNode.pp_print_node_debug) nodes;*)
+
+  let analysis_param =
+    A.set_param_scope_abstraction analysis_param top false
+  in
 
   let { trans_sys } =   
 
@@ -2876,7 +2886,7 @@ let trans_sys_of_nodes
   in
   
   ( match analysis_param with
-    | A.Refinement (_,result) ->
+    | A.Refinement (_,result,_) ->
       (* The analysis that's going to run is a refinement. *)
       TransSys.get_prop_status_all_nocands result.A.sys
       |> List.iter (function

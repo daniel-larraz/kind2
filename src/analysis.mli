@@ -74,12 +74,15 @@ type info = {
   (** Systems flagged [true] are to be represented abstractly, those flagged
       [false] are to be represented by their implementation. *)
 
+  refinement_map : (UfSymbol.t list) Scope.Map.t ;
+  (** Map from system scopes to list of symbols identifying
+      the model elements used in the refinement.
+      
+      An entry in this map for system [s] imples
+      [Scope.Map.find_opt s abstraction_map = Some true] *)
+
   assumptions : assumptions ;
   (** Properties that can be assumed invariant in subsystems *)
-
-  (* refinement_of : result option *)
-  (* Result of the previous analysis of the top system if this analysis is a
-     refinement. *)
 }
 
 (** Shrinks an abstraction map to the subsystems of a system. *)
@@ -96,7 +99,7 @@ type param =
   | First of info
   (** First analysis of a system. *)
 
-  | Refinement of info * result
+  | Refinement of info * result * Scope.t
   (** Refinement of a system. Store the result of the previous analysis. *)
 
 (** Result of analysing a transistion system *)
@@ -119,6 +122,10 @@ and result = {
   (** [None] if system analyzed has not sub-requirements,
       [Some true] if it does and they have been proved correct,
       [Some false] if it does and some are unknown / falsified. *)
+
+  no_valid_requirements : Scope.Set.t ;
+  (** Set of subnodes for which their requirements have not been proved correct 
+    (either they are invalid or unknown) *)
 }
 
 
@@ -137,6 +144,8 @@ val shrink_param_to_sys : param -> TransSys.t -> param
 (** Return [true] if a scope is flagged as abstract in the [abstraction_map] of
    a [param]. Default to [false] if the node is not in the map. *)
 val param_scope_is_abstract : param -> Scope.t -> bool
+
+val set_param_scope_abstraction : param -> Scope.t -> bool -> param
 
 (** Return [true] if no system is flagged abstract
     in the [abstraction_map] of a [param]. *)

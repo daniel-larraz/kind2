@@ -853,11 +853,11 @@ let rec slice_nodes
                        variable *)
                     a)
                l
-               D.empty :: a)
+               D.empty
+              |> (fun l' -> if D.is_empty l' then a else l' :: a))
           []
           locals 
       in
-
       (* Replace inputs and outputs in sliced node *)
       let node_sliced = 
         { node_sliced with
@@ -1083,6 +1083,38 @@ let rec slice_nodes
           accum
           ((roots', (state_var :: leaves), node_sliced', node_unsliced') :: tl)
 
+let root_and_leaves_for_abstract_top
+  ({  N.inputs; 
+      N.outputs; 
+      N.locals;
+      N.contract;
+      N.props; } as node) =
+
+  (* Slice everything from node *)
+  let node_sliced = 
+    slice_all_of_node
+      ~keep_props:true
+      ~keep_contracts:true
+      node 
+  in
+
+  let node_leaves =
+    (roots_of_contract_ass contract)
+    |> SVS.union (roots_of_props props)
+    |> SVS.elements
+  in
+
+  let node_roots = [] in
+
+  let node_sliced = 
+    { node_sliced with
+      N.inputs = inputs;
+      N.outputs = outputs;
+      N.locals = locals }
+  in
+
+  (node_roots, node_leaves, node_sliced, node)
+
 
 (* Slice a node to its implementation, starting from the outputs,
    contracts and properties *)
@@ -1188,7 +1220,8 @@ let root_and_leaves_of_abstraction_map
 =
   if node_is_abstract abstraction_map node
   then (* Node is to be abstract *)
-    root_and_leaves_of_contracts is_top roots node 
+    if is_top then root_and_leaves_for_abstract_top node
+    else root_and_leaves_of_contracts is_top roots node 
   else (* Node is to be concrete *)
     root_and_leaves_of_impl is_top roots node
 

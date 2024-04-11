@@ -688,6 +688,91 @@ let handle_exception process e =
       pp_print_kind_module process
       print_backtrace backtrace
 
+let next_analysis_and_system_of_strategy in_sys =
+
+  let compute_system param =
+    (* Format.printf "param: %a@.@." (Analysis.pp_print_param true) param ; *)
+    (* Build trans sys and slicing info. *)
+    let sys, _ (* in_sys_sliced *) =
+      ISys.trans_sys_of_analysis in_sys param
+    in
+    (* Format.printf "%a" (TSys.pp_print_subsystems true) sys; *)
+    sys
+  in
+
+  let rec loop last_sys =
+    match ISys.next_analysis_of_strategy in_sys !all_results with
+    | None -> (
+      match last_sys with
+      | None -> None
+      | Some s -> Some s
+    )
+    | Some param ->
+      (*Format.printf "A: %a@." (Analysis.pp_print_param true) param;*)
+      let sys = compute_system param in
+      match param with
+      | Analysis.Refinement (info, result, scope)  -> (
+        let keep =
+          let refinement_map =
+            Analysis.(info_of_param result.param).refinement_map
+          in
+          match Scope.Map.find_opt scope refinement_map with
+          | None -> []
+          | Some actlits -> actlits
+        in
+        let core, test_core, sys' =
+          Refinement.instrument_refined_sys in_sys sys scope keep
+        in
+        (*Format.printf "%a" (TSys.pp_print_subsystems true) sys';*)
+        let Analysis.{ sys=prev_sys } = result in
+        let _, invalid, _ = TransSys.get_split_properties prev_sys in
+        let prop_cex_lst =
+          invalid |> List.map (fun p ->
+            let cex = 
+              match p.Property.prop_status with
+              | PropFalse cex -> cex
+              | _ -> assert false
+            in
+            (p.Property.prop_name, cex)
+          )
+        in
+        Stat.start_timer Stat.analysis_time ;
+        let any_blocked, refinement =
+          Refinement.is_any_cex_blocked sys' test_core prop_cex_lst
+        in
+        if any_blocked then (
+          Format.printf "> ANY BLOCKED@.";
+          match refinement with
+          | None -> Some (param, sys)
+          | Some unsat_core ->
+            let actlits = keep @ unsat_core in
+            let sys = Refinement.mk_refinement sys scope core actlits in
+            Format.printf "%a" (TSys.pp_print_subsystems true) sys;
+            let abstraction_map =
+              Scope.Map.add scope true info.abstraction_map
+            in
+            let refinement_map =
+              Scope.Map.add scope actlits info.refinement_map
+            in
+            let info = { info with abstraction_map ; refinement_map } in
+            let param = Analysis.Refinement (info, result, scope) in
+            (*Format.printf "%a" (TSys.pp_print_subsystems true) sys;*)
+            Some (param, sys)
+        )
+        else (
+          Format.printf "> NONE BLOCKED@.";
+          let result =
+            Stat.get_float Stat.analysis_time |> Anal.mk_result param sys
+          in
+          let results = Anal.results_add result !all_results in
+          all_results := results ;
+          loop (Some (param, sys))
+        )
+      )
+      | _ -> Some (param, sys)
+  in
+  loop None
+
 (** Runs the analyses produced by the strategy module. *)
 let run in_sys =
 
@@ -910,16 +995,9 @@ let run in_sys =
 
     (* Runs the next analysis, if any. *)
     let rec loop ac () =
-      match ISys.next_analysis_of_strategy in_sys !all_results with
+      match next_analysis_and_system_of_strategy in_sys with
       
-      | Some param ->
-        (* Format.printf "param: %a@.@." (Analysis.pp_print_param true) param ; *)
-        (* Build trans sys and slicing info. *)
-        let sys, _ (* in_sys_sliced *) =
-          ISys.trans_sys_of_analysis in_sys param
-        in
-
-        (* Format.printf "%a" (TSys.pp_print_subsystems true) sys; *)
+      | Some (param, sys) ->
 
         (* Should we run post analysis treatment? *)
         ( match !latest_trans_sys with

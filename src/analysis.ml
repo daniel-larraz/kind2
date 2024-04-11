@@ -61,12 +61,10 @@ type info = {
   (** Systems flagged [true] are to be represented abstractly, those flagged
       [false] are to be represented by their implementation. *)
 
+  refinement_map : (UfSymbol.t list) Scope.Map.t ;
+
   assumptions : assumptions ;
   (** Properties that can be assumed invariant in subsystems *)
-
-  (* refinement_of : result option *)
-  (* Result of the previous analysis of the top system if this analysis is a
-      refinement. *)
 }
 
 (** Shrinks an abstraction map to the subsystems of a system. *)
@@ -90,7 +88,7 @@ type param =
   (* First analysis of a system. *)
   | First of info
   (* Refinement of a system. Store the result of the previous analysis. *)
-  | Refinement of info * result
+  | Refinement of info * result * Scope.t
 
 
 (** Result of analysing a transistion system *)
@@ -113,6 +111,10 @@ and result = {
   (** [None] if system analyzed has not sub-requirements,
       [Some true] if it does and they have been proved correct,
       [Some false] if it does and some are unknown / falsified. *)
+
+  no_valid_requirements : Scope.Set.t ;
+  (** Set of subnodes for which their requirements have not been proved correct 
+    (either they are invalid or unknown) *)
 }
 
 (* Clones an [info], only changes its [uid]. *)
@@ -123,24 +125,24 @@ let param_clone = function
 | Interpreter info -> Interpreter (info_clone info)
 | ContractCheck info -> ContractCheck (info_clone info)
 | First info -> First (info_clone info)
-| Refinement (info, res) -> Refinement (info_clone info, res)
+| Refinement (info, res, sub) -> Refinement (info_clone info, res, sub)
 
 (* The info or a param. *)
 let info_of_param = function
 | Interpreter info -> info
 | ContractCheck info -> info
 | First info -> info
-| Refinement (info,_) -> info
+| Refinement (info,_,_) -> info
 
 (** Shrinks a param to a system. *)
 let shrink_param_to_sys param sys = match param with
 | Interpreter info -> Interpreter (shrink_info_to_sys info sys)
 | ContractCheck info -> ContractCheck (shrink_info_to_sys info sys)
 | First info -> First (shrink_info_to_sys info sys)
-| Refinement (info, res) -> Refinement ( (shrink_info_to_sys info sys), res )
+| Refinement (info, res, sub) -> Refinement ( (shrink_info_to_sys info sys), res, sub)
 
 let rec get_first_analysis_info = function
-| Refinement (_, { param }) -> get_first_analysis_info param
+| Refinement (_, { param }, _) -> get_first_analysis_info param
 | param -> info_of_param param
 
 (* Retrieve the assumptions of a [scope] from a [param]. *)
@@ -158,6 +160,20 @@ let param_scope_is_abstract param scope =
     Scope.Map.find scope abstraction_map
   (* Assume node to be concrete if not in map *)
   with Not_found -> false
+
+let set_param_scope_abstraction param scope value =
+  let { abstraction_map } as info =
+    info_of_param param
+  in
+  let abstraction_map =
+    Scope.Map.add scope value abstraction_map
+  in
+  let info = { info with abstraction_map } in
+  match param with
+  | Interpreter _ -> Interpreter info
+  | ContractCheck _ -> ContractCheck info
+  | First _ -> First info
+  | Refinement (_, b, c) -> Refinement (info, b, c)
 
 let no_system_is_abstract ?(include_top=true) param =
   let { top; abstraction_map } = info_of_param param in
@@ -178,6 +194,17 @@ let mk_result param sys time =
 
   let valid, invalid, unknown = TransSys.get_split_properties sys in
 
+  let no_valid_requirements =
+    List.fold_left
+      (fun acc p ->
+       match p.Property.prop_source with
+       | Property.Assumption (_, (scope, _)) -> Scope.Set.add scope acc
+       | _ -> acc
+      )
+      Scope.Set.empty
+      (invalid @ unknown)
+  in
+
   let rec find c r valid = function
     | p :: tail -> (
       match p.Property.prop_source with
@@ -196,7 +223,10 @@ let mk_result param sys time =
     find c_valid r_valid false unknown
   in
 
-  { param ; time ; sys ; contract_valid ; requirements_valid }
+  { param ; time ; sys ;
+    contract_valid ; requirements_valid;
+    no_valid_requirements
+  }
 
 (** Returns true if all invariant properties in the system
     in a [result] have been proved. *)
@@ -435,7 +465,7 @@ let pp_print_param_of_result fmt { param ; sys } =
       fmt "without refinement: %d abstract system%s" count (
         if count = 1 then "" else "s"
       )
-  | Refinement ( { abstraction_map }, { param = pre_param } ) ->
+  | Refinement ( { abstraction_map }, { param = pre_param }, _) ->
     let { abstraction_map = pre_abs_map } = get_first_analysis_info pre_param in
     let count =
       Scope.Map.fold (

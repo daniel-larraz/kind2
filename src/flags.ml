@@ -3349,7 +3349,7 @@ module Global = struct
   let modular () = !modular
 
 
-  let slice_nodes_default = true
+  let slice_nodes_default = false
   let slice_nodes = ref slice_nodes_default
   let _ = add_spec
     "--slice_nodes"

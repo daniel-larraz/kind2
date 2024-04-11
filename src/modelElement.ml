@@ -848,13 +848,14 @@ let extract_toplevel_equations in_sys sys =
   |> TIdMap.bindings |> List.map snd
 
 
+let treat_subnode in_sys acc sys =
+  let scope = TS.scope_of_trans_sys sys in
+  extract_toplevel_equations in_sys sys
+  |> List.map (ts_equation_to_model_element in_sys)
+  |> List.fold_left (fun acc elt -> add_to_loc_core scope elt acc) acc
+
 let full_loc_core_for_sys in_sys sys ~only_top_level =
-  let treat_subnode acc sys =
-    let scope = TS.scope_of_trans_sys sys in
-    extract_toplevel_equations in_sys sys
-    |> List.map (ts_equation_to_model_element in_sys)
-    |> List.fold_left (fun acc elt -> add_to_loc_core scope elt acc) acc
-  in
+  let treat_subnode = treat_subnode in_sys in
   let res = treat_subnode empty_loc_core sys in
   if only_top_level then res
   else TS.fold_subsystems ~include_top:false treat_subnode res sys

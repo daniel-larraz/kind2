@@ -945,7 +945,7 @@ let main fwd slice_to_prop prop in_sys param sys =
       match prop.Property.prop_source with
       | Assumption _ -> sys (* An instantiated var is also involved, local sofar var *)
       | Instantiated _ -> sys
-      | _ -> fst (InputSystem.trans_sys_of_analysis ~slice_to_prop:prop in_sys param)
+      | _ -> sys (*fst (InputSystem.trans_sys_of_analysis ~slice_to_prop:prop in_sys param)*)
     )
     else sys
   in

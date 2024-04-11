@@ -101,45 +101,45 @@ let get_refinement_abstraction results subs_of_scope result =
   let sys = info.A.top in
   let subs = subs_of_scope sys in
 
-  match result.A.requirements_valid with
-  | Some false -> (* Requirements could not be proved, aborting. *)
-    (* KEvent.log L_info
-      "Cannot refine %a, some requirements could not be proved."
-      Scope.pp_print_scope sys ; *)
-    None
-  | _ -> (
-    let abstraction = info.A.abstraction_map in
+  let abstraction = info.A.abstraction_map in
 
-    (* Input is a list of list of scope / whatever pairs. Initially input
-       only contains [subs]. Function looks at them as candidates and
-       returns the first refineable system from [subs], more precisely the
-       [result] corresponding to the system. When a non-refineable system
-       is encountered, it is discarded and its subsystems are appended to
-       the input. If no refineable system is found in [subs] function goes
-       looks at the subsystems previously appended to the input
-       recursively. *)
-    let rec loop = function
-      | ( (candidate, _) :: tail ) :: lower -> (
-        (* Is candidate currently abstracted? *)
-        if Scope.Map.find candidate abstraction then
-          (* Is candidate refineable? *)
-          try match A.results_find candidate results with
-          | result :: _ ->
-            (* It is if everything was proved in the last analysis. *)
-            if A.result_is_all_inv_proved result then Some result
-            (* Otherwise keep going. *)
-            else tail :: lower |> loop
-          | [] -> failwith "unreachable"
-          with Not_found -> (* Case of imported nodes (they have no result) *)
-            tail :: lower |> loop
-        else (* Candidate is not abstracted, remembering its subsystems and
-                looping. *)
-          (tail :: lower) @ [ subs_of_scope candidate ] |> loop
-      )
-      | [] :: lower -> loop lower
-      | [] -> None
-    in
+  (* Input is a list of list of scope / whatever pairs. Initially input
+      only contains [subs]. Function looks at them as candidates and
+      returns the first refineable system from [subs], more precisely the
+      [result] corresponding to the system. When a non-refineable system
+      is encountered, it is discarded and its subsystems are appended to
+      the input. If no refineable system is found in [subs] function goes
+      looks at the subsystems previously appended to the input
+      recursively. *)
+  let rec loop = function
+    | ( (candidate, _) :: tail ) :: lower -> (
+      (* Is candidate currently abstracted? *)
+      if Scope.Map.find candidate abstraction then
+        (* Is candidate refineable? *)
+        try match A.results_find candidate results with
+        | result :: _ ->
+          (* It is if requirements of subnode could be proved and 
+             everything was proved in the last analysis. *)
+          if not (Scope.Set.mem candidate result.A.no_valid_requirements) &&
+            A.result_is_all_inv_proved result
+          then Some result
+          (* Otherwise keep going. *)
+          else tail :: lower |> loop
+        | [] -> failwith "unreachable"
+        with Not_found -> (* Case of imported nodes (they have no result) *)
+          tail :: lower |> loop
+      else (* Candidate is not abstracted, remembering its subsystems and
+              looping. *)
+        (tail :: lower) @ [ subs_of_scope candidate ] |> loop
+    )
+    | [] :: lower -> loop lower
+    | [] -> None
+  in
 
+  if Scope.Map.find sys abstraction then
+    let abstraction = Scope.Map.add sys false abstraction in
+    Some (sys, abstraction)
+  else (
     match loop [ subs ] with
     (* No refinement possible. *)
     | None -> None
@@ -157,21 +157,27 @@ let get_refinement_abstraction results subs_of_scope result =
       Some (sub, abstraction)
   )
 
-let is_candidate_for_analysis { can_refine ; has_modes } =
-  (has_modes && Flags.Contracts.check_modes ()) || can_refine
+let should_check_modes { has_modes } =
+  has_modes && Flags.Contracts.check_modes ()
+
+let is_candidate_for_analysis ({ can_refine } as info)  =
+  should_check_modes info || can_refine
 
 (* Returns an option of the parameter for the first analysis of a system. *)
 let first_param_of ass _results all_nodes scope =
 
   let rec loop abstraction = function
-    | (sys, { can_refine ; has_contract ; has_modes }) :: tail -> (
+    | (sys, ({ can_refine ; has_contract } as info)) :: tail -> (
       (* Can/should we abstract this system? *)
       let is_abstract =
-        if sys = scope then 
-          has_modes && (Flags.Contracts.check_modes ())
+        if sys = scope then
+          should_check_modes info ||
+          (Flags.modular () && Flags.Contracts.compositional ())
         else
-          (not can_refine) || (
-            has_contract && (Flags.Contracts.compositional ())
+          (* Remove modular from condition when refinement 
+             loop implemented for non-modular too *)
+          (not can_refine) || ( (Flags.modular () || has_contract) && 
+            (Flags.Contracts.compositional ())
           )
       in
       (* Format.printf "%a is abstract: %b@.@." Scope.pp_print_scope sys is_abstract ; *)
@@ -199,16 +205,16 @@ let first_param_of ass _results all_nodes scope =
     | [] -> Some (abstraction)
   in
 
-  let has_first_analysis =
-    try (
-      is_candidate_for_analysis (List.assoc scope all_nodes)
-    ) with Not_found ->
+  let top_info = 
+    match List.assoc_opt scope all_nodes with
+    | Some info -> info
+    | None ->
       Format.asprintf "Unreachable: could not find info of system %a"
         Scope.pp_print_scope scope
       |> failwith
   in
 
-  if has_first_analysis then (
+  if is_candidate_for_analysis top_info then (
     match loop Scope.Map.empty all_nodes with
     | None -> None
     | Some (abstraction) ->
@@ -216,9 +222,10 @@ let first_param_of ass _results all_nodes scope =
         { A.top = scope ;
           A.uid = A.get_uid () ;
           A.abstraction_map = abstraction ;
+          A.refinement_map = Scope.Map.empty ;
           A.assumptions = ass }
       in
-      if Scope.Map.find scope abstraction then
+      if should_check_modes top_info then
         (* Top level is abstract, we're checking its contract. *)
         Some (A.ContractCheck info)
       else
@@ -361,8 +368,9 @@ let next_modular_analysis results subs_of_scope = function
                     { A.top = sys ;
                       A.uid = A.get_uid () ;
                       A.abstraction_map = abs ;
+                      A.refinement_map = Scope.Map.empty ;
                       A.assumptions = last_assumptions () ; },
-                    result
+                    result, Scope.mk_scope []
                   )
                 )
               )
@@ -372,7 +380,7 @@ let next_modular_analysis results subs_of_scope = function
                 (* Format.printf "Cannot refine for %a@."
                   Scope.pp_print_scope sys ; *)
                 go_up prefix
-              | Some (_, abs) -> (* Refinement found. *)
+              | Some (sub, abs) -> (* Refinement found. *)
                 (* Format.printf "Refined %a for %a@."
                   Scope.pp_print_scope sub
                   Scope.pp_print_scope sys ; *)
@@ -381,8 +389,9 @@ let next_modular_analysis results subs_of_scope = function
                     { A.top = sys ;
                       A.uid = A.get_uid () ;
                       A.abstraction_map = abs ;
+                      A.refinement_map = Scope.Map.empty ;
                       A.assumptions = last_assumptions () ; },
-                    result
+                    result, sub
                   )
                 )
             ) else go_up prefix

@@ -142,6 +142,7 @@ let maximal_abstraction_for_testgen (type s)
         Analysis.top = top ;
         Analysis.uid = get_testgen_uid () ;
         Analysis.abstraction_map = map ;
+        Analysis.refinement_map = Scope.Map.empty ;
         Analysis.assumptions = assumptions ;
       }
     )
@@ -229,6 +230,7 @@ let mcs_params (type s) (input_system : s t) =
       Analysis.top = scope ;
       Analysis.uid = Analysis.get_uid () ;
       Analysis.abstraction_map = abstraction_map ;
+      Analysis.refinement_map = Scope.Map.empty ;
       Analysis.assumptions = Scope.Map.empty ;
     }
   in
@@ -275,6 +277,7 @@ let contract_check_params (type s) (input_system : s t) =
           )
           (Scope.Map.singleton scope true)
           subsystems;
+      Analysis.refinement_map = Scope.Map.empty ;
       Analysis.assumptions = Scope.Map.empty ;
     }, sub.S.has_contract)
   in
@@ -324,6 +327,7 @@ let interpreter_param (type s) (input_system : s t) =
     Analysis.top = scope ;
     Analysis.uid = Analysis.get_uid () ;
     Analysis.abstraction_map = abstraction_map ;
+    Analysis.refinement_map = Scope.Map.empty ;
     Analysis.assumptions = Scope.Map.empty ;
   }
 

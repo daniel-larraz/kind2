@@ -104,8 +104,12 @@ type category = [ `NODE_CALL | `CONTRACT_ITEM | `EQUATION | `ASSERTION | `ANNOTA
 val is_model_element_in_categories :
   model_element -> bool (* is_main_node *) -> category list -> bool
 
+val treat_subnode :
+  'a InputSystem.t -> loc_core -> TransSys.t -> loc_core
+
 val full_loc_core_for_sys :
   'a InputSystem.t -> TransSys.t -> only_top_level:bool -> loc_core
+
 val filter_loc_core_by_categories :
   Scope.t (* Toplevel scope *) -> category list -> loc_core -> loc_core * loc_core
 
