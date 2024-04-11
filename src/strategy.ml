@@ -370,7 +370,7 @@ let next_modular_analysis results subs_of_scope = function
                       A.abstraction_map = abs ;
                       A.refinement_map = Scope.Map.empty ;
                       A.assumptions = last_assumptions () ; },
-                    result, Scope.mk_scope []
+                    result, []
                   )
                 )
               )
@@ -391,7 +391,7 @@ let next_modular_analysis results subs_of_scope = function
                       A.abstraction_map = abs ;
                       A.refinement_map = Scope.Map.empty ;
                       A.assumptions = last_assumptions () ; },
-                    result, sub
+                    result, [sub]
                   )
                 )
             ) else go_up prefix

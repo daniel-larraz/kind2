@@ -711,17 +711,12 @@ let next_analysis_and_system_of_strategy in_sys =
       (*Format.printf "A: %a@." (Analysis.pp_print_param true) param;*)
       let sys = compute_system param in
       match param with
-      | Analysis.Refinement (info, result, scope)  -> (
-        let keep =
-          let refinement_map =
-            Analysis.(info_of_param result.param).refinement_map
-          in
-          match Scope.Map.find_opt scope refinement_map with
-          | None -> []
-          | Some actlits -> actlits
+      | Analysis.Refinement (info, result, scopes)  -> (
+        let refinement_map =
+          Analysis.(info_of_param result.param).refinement_map
         in
         let core, test_core, sys' =
-          Refinement.instrument_refined_sys in_sys sys scope keep
+          Refinement.instrument_refined_sys in_sys sys scopes refinement_map
         in
         (*Format.printf "%a" (TSys.pp_print_subsystems true) sys';*)
         let Analysis.{ sys=prev_sys } = result in
@@ -745,18 +740,33 @@ let next_analysis_and_system_of_strategy in_sys =
           match refinement with
           | None -> Some (param, sys)
           | Some unsat_core ->
-            let actlits = keep @ unsat_core in
-            let sys = Refinement.mk_refinement sys scope core actlits in
-            Format.printf "%a" (TSys.pp_print_subsystems true) sys;
-            let abstraction_map =
-              Scope.Map.add scope true info.abstraction_map
-            in
-            let refinement_map =
-              Scope.Map.add scope actlits info.refinement_map
+            let sys, abstraction_map, refinement_map =
+              List.fold_left
+                (fun (sys, abstraction_map, refinement_map') scope ->
+                  let keep =
+                    match Scope.Map.find_opt scope refinement_map with
+                    | None -> []
+                    | Some actlits -> actlits
+                  in
+                  let actlits =
+                    keep @ (ModelElement.get_actlits_of_scope unsat_core scope)
+                  in
+                  let sys = Refinement.mk_refinement sys scope core actlits in
+                  (*Format.printf "%a" (TSys.pp_print_subsystems true) sys;*)
+                  let abstraction_map =
+                    Scope.Map.add scope true abstraction_map
+                  in
+                  let refinement_map' =
+                    Scope.Map.add scope actlits refinement_map'
+                  in
+                  sys, abstraction_map, refinement_map'
+                )
+                (sys, info.abstraction_map, info.refinement_map)
+                scopes
             in
             let info = { info with abstraction_map ; refinement_map } in
-            let param = Analysis.Refinement (info, result, scope) in
-            (*Format.printf "%a" (TSys.pp_print_subsystems true) sys;*)
+            let param = Analysis.Refinement (info, result, scopes) in
+            Format.printf "%a" (TSys.pp_print_subsystems true) sys;
             Some (param, sys)
         )
         else (

@@ -88,7 +88,7 @@ type param =
   (* First analysis of a system. *)
   | First of info
   (* Refinement of a system. Store the result of the previous analysis. *)
-  | Refinement of info * result * Scope.t
+  | Refinement of info * result * Scope.t list
 
 
 (** Result of analysing a transistion system *)

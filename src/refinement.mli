@@ -30,15 +30,15 @@ val compute_core_of_sys :
 val instrument_refined_sys :
   'a InputSystem.t ->
   TransSys.t ->
-  Scope.t ->
-  UfSymbol.t list ->
+  Scope.t list ->
+  UfSymbol.t list Scope.Map.t ->
   ModelElement.core * ModelElement.core * TransSys.t
 
 val is_any_cex_blocked :
   TransSys.t ->
   ModelElement.core ->
   (string * cex) list ->
-  bool * (UfSymbol.t list) option
+  bool * ModelElement.core option
 
 val mk_refinement :
   TransSys.t ->

@@ -123,7 +123,9 @@ let is_any_cex_blocked sys core prop_cex_lst =
     ) ;
     let refinement =
       if List.length unsat_core = List.length act_terms then None
-      else Some (List.map actlit_of_term unsat_core)
+      else
+        let symbols = List.map actlit_of_term unsat_core in
+        Some (ME.filter_core symbols core)
     in
     not sat, refinement
   in
@@ -167,27 +169,37 @@ let compute_core_of_sys in_sys sys scope =
   ME.loc_core_to_new_core loc_core
 
 
-let instrument_refined_sys in_sys sys scope keep =
-  let core = compute_core_of_sys in_sys sys scope in
-  let eq_of_actlit = ME.eq_of_actlit_sv core in
-  let keep_core = ME.filter_core keep core in
-  let test_core = ME.core_diff core keep_core in
-  let test = ME.get_actlits_of_scope test_core scope in
-  let eqs =
-    List.map (fun k -> eq_of_actlit ~with_act:false k) keep @
-    List.map (fun t -> eq_of_actlit ~with_act:true t) test
-  in
-  let init_eq = List.map (fun eq -> eq.ME.init_opened) eqs
-  |> Term.mk_and in
-  let trans_eq = List.map (fun eq -> eq.ME.trans_opened) eqs
-  |> Term.mk_and in
-  let sys' =
-    TransSys.set_subsystem_equations sys scope init_eq trans_eq
-  in
-  let actsvs = actsvs_of_core core in
-  let sys' =
-    List.fold_left (fun acc sv ->
-      TransSys.add_global_constant acc (Var.mk_const_state_var sv)
-    ) sys' actsvs
-  in
-  core, test_core, sys'
+let instrument_refined_sys in_sys sys scopes refinement_map =
+  List.fold_left
+    (fun (core', test_core', sys) scope ->
+      let keep =
+        match Scope.Map.find_opt scope refinement_map with
+        | None -> []
+        | Some actlits -> actlits
+      in
+      let core = compute_core_of_sys in_sys sys scope in
+      let eq_of_actlit = ME.eq_of_actlit_sv core in
+      let keep_core = ME.filter_core keep core in
+      let test_core = ME.core_diff core keep_core in
+      let test = ME.get_actlits_of_scope test_core scope in
+      let eqs =
+        List.map (fun k -> eq_of_actlit ~with_act:false k) keep @
+        List.map (fun t -> eq_of_actlit ~with_act:true t) test
+      in
+      let init_eq = List.map (fun eq -> eq.ME.init_opened) eqs
+      |> Term.mk_and in
+      let trans_eq = List.map (fun eq -> eq.ME.trans_opened) eqs
+      |> Term.mk_and in
+      let sys' =
+        TransSys.set_subsystem_equations sys scope init_eq trans_eq
+      in
+      let actsvs = actsvs_of_core core in
+      let sys' =
+        List.fold_left (fun acc sv ->
+          TransSys.add_global_constant acc (Var.mk_const_state_var sv)
+        ) sys' actsvs
+      in
+      ME.core_union core' core, ME.core_union test_core' test_core, sys'
+    )
+    (ME.empty_core, ME.empty_core, sys)
+    scopes
