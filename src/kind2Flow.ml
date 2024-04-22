@@ -715,10 +715,11 @@ let next_analysis_and_system_of_strategy in_sys =
         let refinement_map =
           Analysis.(info_of_param result.param).refinement_map
         in
+        (*Format.printf "BEFORE: %a" (TSys.pp_print_subsystems true) sys;*)
         let core, test_core, sys' =
           Refinement.instrument_refined_sys in_sys sys scopes refinement_map
         in
-        (*Format.printf "%a" (TSys.pp_print_subsystems true) sys';*)
+        (*Format.printf "AFTER: %a" (TSys.pp_print_subsystems true) sys';*)
         let Analysis.{ sys=prev_sys } = result in
         let _, invalid, _ = TransSys.get_split_properties prev_sys in
         let prop_cex_lst =
@@ -775,7 +776,7 @@ let next_analysis_and_system_of_strategy in_sys =
             in
             let info = { info with abstraction_map ; refinement_map } in
             let param = Analysis.Refinement (info, result, scopes) in
-            Format.printf "%a" (TSys.pp_print_subsystems true) sys;
+            (*Format.printf "%a" (TSys.pp_print_subsystems true) sys;*)
             Some (param, sys)
         )
         else (

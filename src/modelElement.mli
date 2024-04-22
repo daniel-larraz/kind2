@@ -68,6 +68,8 @@ val filter_core_svs : StateVar.t list -> core -> core
 val core_union : core -> core -> core
 val core_diff : core -> core -> core
 
+val reset_actlit_count : unit -> unit
+
 (** {1 Lustre-level cores} *)
 
 (** Represents an equation at the level of the transition system

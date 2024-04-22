@@ -402,6 +402,20 @@ let all_wa_names_of_loc_core core =
 
 (* ---------- CORES ---------- *)
 
+let actl_counter = ref 0
+
+let fresh_actlit scope =
+  let name =
+    scope @ ["%actlit"; string_of_int !actl_counter ]
+    |> Scope.to_string
+  in
+  actl_counter := !actl_counter + 1 ;
+  UfSymbol.mk_uf_symbol name [] (Type.mk_bool ())
+
+let term_of_actlit actlit = Term.mk_uf actlit []
+
+let reset_actlit_count () = actl_counter := 0
+
 let actsvs_counter =
   let last = ref 0 in
   (fun () -> last := !last + 1 ; !last)
@@ -447,7 +461,7 @@ let eq_of_actlit_uf core ?(with_act=false) a =
   then
     let guard t =
       (* Term.mk_eq *)
-      Term.mk_implies [Actlit.term_of_actlit a ; t]
+      Term.mk_implies [term_of_actlit a ; t]
     in
     { init_opened=guard eq.init_opened ; init_closed=guard eq.init_closed ;
       trans_opened=guard eq.trans_opened ; trans_closed=guard eq.trans_closed }
@@ -467,7 +481,7 @@ let pick_element_of_core (scmap, mapping) =
     Some (scope, List.hd lst, (ScMap.add scope (List.tl lst) scmap, mapping))
 
 let add_new_ts_equation_to_core scope eq ((scmap, mapping) as core) =
-  let actlit = Actlit.fresh_actlit () in
+  let actlit = fresh_actlit scope in
   let actlits = actlit::(get_actlits_of_scope core scope) in
   let sv = StateVar.mk_state_var ~is_input:false ~is_const:true
         (fresh_actsv_name ()) [] (Type.mk_bool ()) in

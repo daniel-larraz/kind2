@@ -111,7 +111,7 @@ let get_refinement_abstraction results subs_of_scope result =
       the input. If no refineable system is found in [subs] function goes
       looks at the subsystems previously appended to the input
       recursively. *)
-  let rec loop = function
+  let rec loop result_lst = function
     | ( (candidate, _) :: tail ) :: lower -> (
       (* Is candidate currently abstracted? *)
       if Scope.Map.find candidate abstraction then
@@ -122,40 +122,51 @@ let get_refinement_abstraction results subs_of_scope result =
              everything was proved in the last analysis. *)
           if not (Scope.Set.mem candidate result.A.no_valid_requirements) &&
             A.result_is_all_inv_proved result
-          then Some result
+          then loop (result :: result_lst) (tail :: lower)
           (* Otherwise keep going. *)
-          else tail :: lower |> loop
+          else loop result_lst (tail :: lower)
         | [] -> failwith "unreachable"
         with Not_found -> (* Case of imported nodes (they have no result) *)
-          tail :: lower |> loop
+          loop result_lst (tail :: lower)
       else (* Candidate is not abstracted, remembering its subsystems and
               looping. *)
-        (tail :: lower) @ [ subs_of_scope candidate ] |> loop
+        loop result_lst ((tail :: lower) @ [ subs_of_scope candidate ])
     )
-    | [] :: lower -> loop lower
-    | [] -> None
+    | [] :: lower -> loop result_lst lower
+    | [] -> result_lst
   in
 
-  if Scope.Map.find sys abstraction then
-    let abstraction = Scope.Map.add sys false abstraction in
-    Some (sys, abstraction)
-  else (
-    match loop [ subs ] with
-    (* No refinement possible. *)
-    | None -> None
-    | Some { A.param } ->
-      (* Refinement found, need to update abstraction and lift invariants. *)
-      let info = A.info_of_param param in
-      let sub = info.A.top in
-      (* System is now concrete. *)
-      let abstraction = Scope.Map.add sub false abstraction in
-      (* Updating with the abstraction used to prove [sub]. *)
-      let abstraction =
-        merge_abstractions abstraction info.A.abstraction_map
-      in
-
-      Some (sub, abstraction)
-  )
+  let result_lst = 
+    if Scope.Map.find sys abstraction then
+      [result]
+    else
+      []
+  in
+  match loop result_lst [ subs ] with
+  (* No refinement possible. *)
+  | [] -> None
+  | result_lst ->
+    let scopes, abstraction =
+      List.fold_left
+        (fun (scopes, abstraction) { A.param } ->
+          (* Refinement found, need to update abstraction and lift invariants. *)
+          let info = A.info_of_param param in
+          let sub = info.A.top in
+          if not (List.exists (fun sc -> Scope.equal sc sub) scopes) then (
+            (* System is now concrete. *)
+            let abstraction = Scope.Map.add sub false abstraction in
+            (* Updating with the abstraction used to prove [sub]. *)
+            let abstraction =
+              merge_abstractions abstraction info.A.abstraction_map
+            in
+            sub :: scopes, abstraction
+          )
+          else scopes, abstraction
+        )
+        ([], abstraction)
+        result_lst
+    in
+    Some (scopes, abstraction)
 
 let should_check_modes { has_modes } =
   has_modes && Flags.Contracts.check_modes ()
@@ -380,7 +391,7 @@ let next_modular_analysis results subs_of_scope = function
                 (* Format.printf "Cannot refine for %a@."
                   Scope.pp_print_scope sys ; *)
                 go_up prefix
-              | Some (sub, abs) -> (* Refinement found. *)
+              | Some (scopes, abs) -> (* Refinement found. *)
                 (* Format.printf "Refined %a for %a@."
                   Scope.pp_print_scope sub
                   Scope.pp_print_scope sys ; *)
@@ -391,7 +402,7 @@ let next_modular_analysis results subs_of_scope = function
                       A.abstraction_map = abs ;
                       A.refinement_map = Scope.Map.empty ;
                       A.assumptions = last_assumptions () ; },
-                    result, [sub]
+                    result, scopes
                   )
                 )
             ) else go_up prefix

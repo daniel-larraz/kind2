@@ -159,7 +159,6 @@ let mk_refinement sys scope core actlits =
 let compute_core_of_sys in_sys sys scope =
   (*Format.printf "SCOPE: %a@." Scope.pp_print_scope scope;
   Format.printf "SYS: %a@." (TransSys.pp_print_subsystems true) sys;*)
-  Actlit.reset_fresh_actlit_count ();
   let refined_sys =
     TransSys.find_subsystem_of_scope sys scope
   in
@@ -177,6 +176,7 @@ let instrument_refined_sys in_sys sys scopes refinement_map =
         | None -> []
         | Some actlits -> actlits
       in
+      ME.reset_actlit_count ();
       let core = compute_core_of_sys in_sys sys scope in
       let eq_of_actlit = ME.eq_of_actlit_sv core in
       let keep_core = ME.filter_core keep core in
