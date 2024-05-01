@@ -34,6 +34,12 @@ val instrument_refined_sys :
   UfSymbol.t list Scope.Map.t ->
   ModelElement.core * ModelElement.core * TransSys.t
 
+val minimize_cex :
+  TransSys.t ->
+  Term.t ->
+  cex ->
+  cex
+
 val is_any_cex_blocked :
   TransSys.t ->
   ModelElement.core ->

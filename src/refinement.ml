@@ -37,6 +37,9 @@ let create_solver_and_context sys k =
     (SMTSolver.declare_sort solver)
     Numeral.zero k;
 
+  solver
+
+let assert_init_and_trans solver sys k =
   TransSys.init_of_bound
     (Some (SMTSolver.declare_fun solver)) sys Numeral.zero
   |> SMTSolver.assert_term solver ;
@@ -45,9 +48,20 @@ let create_solver_and_context sys k =
     TransSys.trans_of_bound
       (Some (SMTSolver.declare_fun solver)) sys (Numeral.of_int i)
     |> SMTSolver.assert_term solver ;
-  done ;
+  done
 
-  solver
+let compute_unrolling solver sys k =
+  let init =
+    TransSys.init_of_bound
+      (Some (SMTSolver.declare_fun solver)) sys Numeral.zero
+  in
+  let trans =
+    List.init k (fun i ->
+      TransSys.trans_of_bound
+      (Some (SMTSolver.declare_fun solver)) sys (Numeral.of_int (i+1))
+    )
+  in
+  Term.mk_and (init :: trans)
 
 let actlits_of_core core =
   let aux acc scope =
@@ -64,18 +78,95 @@ let actlit_of_term t =
   | Const s -> Symbol.uf_of_symbol s
   | _ -> assert false
 
+
+let get_assignments svars cex =
+  List.fold_left (fun acc (sv, values) ->
+    if SVS.mem sv svars then (
+      let _, assignments =
+        List.fold_left (fun (i, acc') vl ->
+          let var = Var.mk_state_var_instance sv (Numeral.of_int i) in
+          match vl with
+          | Model.Term e ->
+            let assign = Term.mk_eq [Term.mk_var var; e] in
+            i+1, assign :: acc'
+          | _ -> assert false
+        )
+        (0, [])
+        values
+      in
+      (sv, assignments) :: acc
+    )
+    else acc
+  )
+  []
+  cex
+
+let minimize_cex sys prop cex =
+  let k =
+    (Property.length_of_cex cex) - 1
+  in
+  let solver = create_solver_and_context sys (Numeral.of_int k) in
+  let unrolling =
+    Term.mk_and [compute_unrolling solver sys k; Term.mk_not (Term.bump_state (Numeral.of_int k) prop)] 
+  in
+  let svars =
+    TransSys.state_vars sys
+    |> SVS.of_list
+  in
+  let assignments = get_assignments svars cex in
+  let svar_actl =
+    assignments |> List.map (fun (sv, assign) ->
+      let acl = Actlit.fresh_actlit () in
+      let aclt = Term.mk_uf acl [] in
+      SMTSolver.declare_fun solver acl;
+      SMTSolver.assert_term solver (Term.mk_implies [aclt; Term.mk_and assign]) ;
+      sv, aclt
+    )
+  in
+  SMTSolver.assert_term solver (Term.mk_not unrolling) ;
+  let act_terms = List.map snd svar_actl in
+  let sat, unsat_core =
+    SMTSolver.check_sat_assuming solver
+      (fun _ -> true, [])
+      (fun _ -> false, SMTSolver.get_unsat_core_lits solver)
+      act_terms
+  in
+  assert (not sat);
+  let cex' =
+    cex |> List.filter (fun (sv, _) ->
+      let act =
+        match List.assoc_opt sv svar_actl with
+        | None -> (Format.printf "SVAR: %a@." StateVar.pp_print_state_var sv; assert false)
+        | Some x -> x
+      in
+      List.exists (fun e -> Term.equal e act) unsat_core
+    )
+  in
+  (*List.iter (fun (sv,_) -> Format.printf "SV: %a@." StateVar.pp_print_state_var sv) cex ;
+  List.iter (fun (sv,_) -> Format.printf "SV': %a@." StateVar.pp_print_state_var sv) cex' ;*)
+  cex'
+
+
 let is_any_cex_blocked sys core prop_cex_lst =
   let svars =
     TransSys.state_vars sys
     |> SVS.of_list
   in
+  let actlits = actlits_of_core core in
+  let actsvs = actsvs_of_core core in
+  let actsv_terms =
+    List.map
+      (fun sv -> Term.mk_var (Var.mk_const_state_var sv) |> Term.mk_not)
+      actsvs
+  in
+  let act_terms = List.map Actlit.term_of_actlit actlits in
   let is_cex_blocked (name, cex) =
     let k =
       (Property.length_of_cex cex) - 1
       |> Numeral.of_int
     in
     let solver = create_solver_and_context sys k in
-    let actlits = actlits_of_core core in
+    assert_init_and_trans solver sys k ;
     List.iter (SMTSolver.declare_fun solver) actlits ;
     cex |> List.iter (fun (sv, values) ->
       values |> List.iteri (fun i vl ->
@@ -89,13 +180,6 @@ let is_any_cex_blocked sys core prop_cex_lst =
         )
       )
     ) ;
-    let actsvs = actsvs_of_core core in
-    let actsv_terms =
-      List.map
-        (fun sv -> Term.mk_var (Var.mk_const_state_var sv) |> Term.mk_not)
-        actsvs
-    in
-    let act_terms = List.map Actlit.term_of_actlit actlits in
     List.iter
       (fun (at, svt) -> SMTSolver.assert_term solver (Term.mk_implies [at; svt]))
       (List.combine act_terms actsv_terms);
@@ -117,6 +201,9 @@ let is_any_cex_blocked sys core prop_cex_lst =
       let new_cex =
         Model.path_from_model (TransSys.state_vars sys) model k
         |> Model.path_to_list
+        |> List.filter (fun (sv,_) ->
+          not (List.exists (fun sv' -> StateVar.equal_state_vars sv sv') actsvs)
+        )
       in
 
       TransSys.set_prop_false sys name new_cex ;
@@ -193,7 +280,7 @@ let instrument_refined_sys in_sys sys scopes refinement_map =
       let sys' =
         TransSys.set_subsystem_equations sys scope init_eq trans_eq
       in
-      let actsvs = actsvs_of_core core in
+      let actsvs = actsvs_of_core test_core in
       let sys' =
         List.fold_left (fun acc sv ->
           TransSys.add_global_constant acc (Var.mk_const_state_var sv)

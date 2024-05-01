@@ -726,7 +726,7 @@ let next_analysis_and_system_of_strategy in_sys =
           invalid |> List.map (fun p ->
             let cex = 
               match p.Property.prop_status with
-              | PropFalse cex -> cex
+              | PropFalse cex -> Refinement.minimize_cex prev_sys p.Property.prop_term cex
               | _ -> assert false
             in
             (p.Property.prop_name, cex)
