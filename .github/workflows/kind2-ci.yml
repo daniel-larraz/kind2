@@ -11,9 +11,9 @@ jobs:
   kind2-build:
     strategy:
       matrix:
-        os: [ ubuntu-20.04, macos-12, macos-14 ]
+        os: [ ubuntu-20.04, macos-11, macos-14 ]
         include:
-          - os: macos-12
+          - os: macos-11
             pkg_update: brew update
             ocaml-version: 4.09.1
           - os: macos-14
@@ -38,7 +38,14 @@ jobs:
       run: ${{ matrix.pkg_update }}
 
     - name: Build Kind 2
+      if: runner.os != 'macOS'
       uses: ./.github/actions/build-kind2
+      with:
+        ocaml-version: ${{ matrix.ocaml-version }}
+    
+    - name: Build Kind 2
+      if: runner.os == 'macOS'
+      uses: ./.github/actions/build-kind2-macos
       with:
         ocaml-version: ${{ matrix.ocaml-version }}
 
