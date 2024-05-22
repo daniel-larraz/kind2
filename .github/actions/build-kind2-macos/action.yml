@@ -22,6 +22,7 @@ runs:
         echo "compiler=${{ inputs.ocaml-version }}" >> $GITHUB_OUTPUT
         echo "tag=${{ inputs.ocaml-version }}" >> $GITHUB_OUTPUT
       fi
+      echo "$HOME/.local/bin" >> $GITHUB_PATH
       echo "::endgroup::"
 
   - name: Set up OCaml ${{ steps.ocaml-variant.outputs.tag }}
@@ -30,6 +31,7 @@ runs:
       echo "::group::Set OCaml compiler variant"
       wget -qq https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh
       echo -ne "~/.local/bin\nY\nY\n" | sh install.sh
+      brew install gpatch
       opam init --disable-sandboxing --yes --compiler ${{ steps.ocaml-variant.outputs.compiler }}
       echo "::endgroup::"
 
