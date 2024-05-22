@@ -61,7 +61,7 @@ jobs:
       run: brew install z3
 
     - name: Install unit test dependencies
-      run: opam install ounit2
+      run: opam install -y ounit2
 
     - name: Run ounit and regression tests
       run: opam exec make test
