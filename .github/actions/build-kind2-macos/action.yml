@@ -29,7 +29,7 @@ runs:
     run: |
       echo "::group::Set OCaml compiler variant"
       wget -qq https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh
-      echo -ne "~/.local/bin\nY\n" | sh install.sh
+      echo -ne "~/.local/bin\nY\nY\n" | sh install.sh
       opam init --disable-sandboxing --yes --compiler ${{ steps.ocaml-variant.outputs.compiler }}
       echo "::endgroup::"
 
