@@ -10,6 +10,11 @@ inputs:
 runs:
   using: composite
   steps:
+  - name: Set MACOSX_DEPLOYMENT_TARGET
+    if: runner.os == 'macOS'
+    shell: bash
+    run: echo "MACOSX_DEPLOYMENT_TARGET=12" >> $GITHUB_ENV
+
   - name: Set OCaml compiler variant
     id: ocaml-variant
     shell: bash
@@ -23,6 +28,13 @@ runs:
         echo "tag=${{ inputs.ocaml-version }}" >> $GITHUB_OUTPUT
       fi
       echo "::endgroup::"
+
+  - name: Install ZeroMQ
+    if: runner.os == 'macOS'
+    shell: bash
+    run: |
+      curl -L -H "Authorization: Bearer QQ==" -o zeromq-4.3.5.arm64_monterey.bottle.tar.gz https://ghcr.io/v2/homebrew/core/zeromq/blobs/sha256:3a8bc264cb466f765f65f73b0db3c202899656efa11b2df37bd961a224589e20
+      brew install -f zeromq-4.3.5.arm64_monterey.bottle.tar.gz
 
   - name: Set up OCaml ${{ steps.ocaml-variant.outputs.tag }}
     uses: ocaml/setup-ocaml@v3
