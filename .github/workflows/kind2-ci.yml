@@ -37,6 +37,7 @@ jobs:
       uses: ./.github/actions/build-kind2
       with:
         ocaml-version: ${{ matrix.ocaml-version }}
+        make-opts: ${{ runner.os == 'macOS' && 'static' || '' }
 
     - name: Install Z3 (Ubuntu)
       if: runner.os == 'Linux'
@@ -59,7 +60,7 @@ jobs:
       run: opam exec make test
 
     - name: Upload kind2 artifact
-      if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+      #if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
       uses: actions/upload-artifact@v4
       with:
         name: kind2-${{ matrix.os }}
