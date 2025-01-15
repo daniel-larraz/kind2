@@ -35,7 +35,9 @@ runs:
 
   - name: Install OCaml dependencies
     shell: bash
-    run: opam install -y . --deps-only
+    run: |
+      opam install zmq.5.2.2
+      opam install -y . --deps-only
   
   - name: Build Kind2
     shell: bash
