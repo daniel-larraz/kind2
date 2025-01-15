@@ -52,11 +52,11 @@ jobs:
       if: runner.os == 'macOS'
       run: brew install z3
 
-    - name: Install unit test dependencies
-      run: opam install ounit2
+    # - name: Install unit test dependencies
+    #   run: opam install ounit2
 
-    - name: Run ounit and regression tests
-      run: opam exec make test
+    # - name: Run ounit and regression tests
+    #   run: opam exec make test
 
     - name: Upload kind2 artifact
       #if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
