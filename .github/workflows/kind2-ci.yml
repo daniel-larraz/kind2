@@ -14,10 +14,10 @@ jobs:
           #   ocaml-version: 4.09.1
           - os: macos-14
             pkg_update: brew update
-            ocaml-version: 4.10.2 # Oldest version available
+            ocaml-version: 5.2.0 # Oldest version available
           - os: ubuntu-latest
             pkg_update: sudo apt-get update -y
-            ocaml-version: 4.09.1
+            ocaml-version: 5.2.0
 
     runs-on: ${{ matrix.os }}
 

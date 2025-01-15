@@ -46,5 +46,11 @@ runs:
     run: opam install -y . --deps-only
   
   - name: Build Kind2
+    if: runner.os == 'macOS'
+    shell: bash
+    run: opam exec make static
+
+  - name: Build Kind2
+    if: runner.os == 'Linux'
     shell: bash
     run: opam exec make
