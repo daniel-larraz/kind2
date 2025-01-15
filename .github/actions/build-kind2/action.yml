@@ -41,6 +41,4 @@ runs:
   
   - name: Build Kind2
     shell: bash
-    run: |
-      opam exec make ${{ inputs.make-opts }}
-      otool -L bin/kind2
+    run: opam exec make ${{ inputs.make-opts }}

@@ -51,7 +51,9 @@ jobs:
 
     - name: Install Z3 (macOS)
       if: runner.os == 'macOS'
-      run: brew install z3
+      run: |
+        brew install z3
+        otool -L bin/kind2
 
     - name: Install unit test dependencies
       run: opam install ounit2
