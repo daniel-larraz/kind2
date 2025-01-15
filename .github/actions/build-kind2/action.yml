@@ -34,7 +34,7 @@ runs:
     shell: bash
     run: |
       curl -L -H "Authorization: Bearer QQ==" -o libsodium-1.0.20.arm64_monterey.bottle.tar.gz https://ghcr.io/v2/homebrew/core/libsodium/blobs/sha256:25377f9e16747b9af732be608a966b580287d0854c2d530f23eea1235bca1ff7
-      brew install -f libsodium-1.0.20.arm64_monterey.bottle.tar.gz
+      brew reinstall -f libsodium-1.0.20.arm64_monterey.bottle.tar.gz
       curl -L -H "Authorization: Bearer QQ==" -o zeromq-4.3.5.arm64_monterey.bottle.tar.gz https://ghcr.io/v2/homebrew/core/zeromq/blobs/sha256:3a8bc264cb466f765f65f73b0db3c202899656efa11b2df37bd961a224589e20
       brew install -f zeromq-4.3.5.arm64_monterey.bottle.tar.gz
 
