@@ -35,9 +35,7 @@ runs:
 
   - name: Install OCaml dependencies
     shell: bash
-    run: |
-      opam install dune.3.12.1 zmq.5.2.2
-      opam install -y . --deps-only
+    run: opam install -y . --deps-only
   
   - name: Build Kind2
     shell: bash
