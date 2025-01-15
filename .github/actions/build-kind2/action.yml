@@ -36,9 +36,11 @@ runs:
   - name: Install OCaml dependencies
     shell: bash
     run: |
-      opam install zmq.5.2.2
+      opam install dune.3.12.1 zmq.5.2.2
       opam install -y . --deps-only
   
   - name: Build Kind2
     shell: bash
-    run: opam exec make ${{ inputs.make-opts }}
+    run: |
+      opam exec make ${{ inputs.make-opts }}
+      otool -L bin/kind2
