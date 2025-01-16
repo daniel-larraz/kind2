@@ -137,11 +137,11 @@ jobs:
       run: |
         LIBSODIUM_BOTTLE=libsodium-${{ matrix.libsodium-version }}.${{ matrix.bottle-suffix }}.bottle.tar.gz
         curl -L -H "Authorization: Bearer QQ==" -o $LIBSODIUM_BOTTLE https://ghcr.io/v2/homebrew/core/libsodium/blobs/sha256:${{ matrix.libsodium-sha256 }}
-        brew reinstall --no-sandbox -f $LIBSODIUM_BOTTLE
+        brew reinstall -q -f $LIBSODIUM_BOTTLE
 
         ZEROMQ_BOTTLE=zeromq-${{ matrix.zeromq-version }}.${{ matrix.bottle-suffix }}.bottle.tar.gz
         curl -L -H "Authorization: Bearer QQ==" -o $ZEROMQ_BOTTLE https://ghcr.io/v2/homebrew/core/zeromq/blobs/sha256:${{ matrix.zeromq-sha256 }}
-        brew install --no-sandbox -f $ZEROMQ_BOTTLE
+        brew install -q -f $ZEROMQ_BOTTLE
 
     - name: Build Kind 2 macOS binary
       if: runner.os == 'macOS'
