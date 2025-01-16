@@ -58,7 +58,7 @@ jobs:
   build:
     if: |
       always()
-      && github.repository == 'kind2-mc/kind2'
+      && github.repository == 'daniel-larraz/kind2'
       && contains(needs.*.result, 'success')
       && !contains(needs.*.result, 'failure')
 
