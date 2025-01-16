@@ -12,7 +12,7 @@ on:
 
 jobs:
   get-nightly-ready:
-    if: !startsWith(github.event.ref, 'refs/tags/v')
+    if: github.repository == 'daniel-larraz/kind2' && !startsWith(github.event.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
 
     steps:
