@@ -159,7 +159,7 @@ jobs:
         if [[ "$RUNNER_OS" == "Linux" ]]; then
           ptag="linux-x86_64"
         else
-          ptag="macos-${{ macos-target }}-$(uname -m)"
+          ptag="macos-${{ matrix.macos-target }}-$(uname -m)"
         fi
         tarball=kind2-$vtag-$ptag.tar.gz
         tar -czf $tarball kind2
