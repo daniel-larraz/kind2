@@ -67,7 +67,7 @@ jobs:
       matrix:
         os: [ ubuntu-latest, macos-13, macos-14 ]
         ocaml-version: [ 5.3.0 ]
-        macos-target: 12
+        macos-target: [ 12 ]
         include:
           - os: macos-13
             bottle-suffix: monterey
@@ -132,7 +132,7 @@ jobs:
       with:
         ocaml-version: ${{ matrix.ocaml-version }}
         cache-prefix: macos${{ matrix.macos-target }}
-        flambda: true
+        flambda: false
         build-target: static
     
     - name: Strip Kind 2 macOS binary
