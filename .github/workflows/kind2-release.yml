@@ -66,7 +66,7 @@ jobs:
     strategy:
       matrix:
         os: [ ubuntu-latest, macos-13, macos-14 ]
-        ocaml-version: [ 5.2.0 ]
+        ocaml-version: [ 5.3.0 ]
         macos-target: [ 12 ]
         include:
           - os: macos-13
@@ -132,9 +132,13 @@ jobs:
       with:
         ocaml-version: ${{ matrix.ocaml-version }}
         cache-prefix: macos${{ matrix.macos-target }}
-        flambda: false
+        flambda: true
         build-target: static
     
+    - name: Test Kind 2 macOS binary
+      if: runner.os == 'macOS'
+      run: ./bin/kind2 --version
+
     # - name: Strip Kind 2 macOS binary
     #   if: runner.os == 'macOS'
     #   run: strip ./bin/kind2
