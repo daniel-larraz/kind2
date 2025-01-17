@@ -48,8 +48,13 @@ jobs:
     - name: Install Z3 (Ubuntu)
       if: runner.os == 'Linux'
       run: |
-        Z3_VERSION=4.12.2
-        Z3_OS_VERSION=x64-glibc-2.31
+        Z3_VERSION=4.13.4
+        ARCH=$(uname -m)
+        if [[ "$ARCH" == "x86_64" ]]; then
+          Z3_OS_VERSION=x64-glibc-2.35
+        else
+          Z3_OS_VERSION=arm64-glibc-2.34
+        fi
         Z3_ZIP_NAME=z3-$Z3_VERSION-$Z3_OS_VERSION
         wget -q https://github.com/Z3Prover/z3/releases/download/z3-$Z3_VERSION/$Z3_ZIP_NAME.zip
         unzip -q $Z3_ZIP_NAME.zip
