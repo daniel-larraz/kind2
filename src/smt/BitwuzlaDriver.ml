@@ -44,16 +44,12 @@ let cmd_line
   in
   let timeout = Lib.min_option timeout_global timeout_local in
 
-  let base_cmd = [| bitwuzla_bin; "--interpolants-lift"; "--interpolants-subst" |] in
+  let base_cmd = [| bitwuzla_bin |] in
   match timeout with
   | None -> base_cmd
   | Some timeout ->
       let timeout = Format.sprintf "--time=%.0f" (timeout |> ceil) in
       Array.append base_cmd [| timeout |]
-
-
-let headers _ =
-  ["(set-option :abstraction-bv-size 32)"]
 
 let check_sat_limited_cmd _ =
   failwith "check-sat with timeout not implemented for Bitwuzla"
