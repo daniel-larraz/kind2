@@ -959,7 +959,6 @@ let get_interpolants solver args =
   (* Interpolation is not part of the SMTLIB standard.
      Until then, we handle each particular case here... *)
   match solver.solver_kind with
-  | `Bitwuzla_SMTLIB
   | `MathSAT_SMTLIB -> (
     List.init ((List.length args)-1) (fun i ->
       let g1, _ = Lib.list_split (i+1) args in
@@ -971,8 +970,14 @@ let get_interpolants solver args =
       | r -> smt_error solver r
     )
   )
+  | `Bitwuzla_SMTLIB
   | `OpenSMT_SMTLIB
   | `SMTInterpol_SMTLIB -> (
+    let args =
+      match solver.solver_kind with
+      | `Bitwuzla_SMTLIB -> List.map (fun a -> SMTExpr.ArgList [a]) args
+      | _ -> args
+    in
     match execute_custom_command solver "get-interpolants" args 1 with
     | `Custom i -> (
       match (List.hd i) with
