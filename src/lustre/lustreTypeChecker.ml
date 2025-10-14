@@ -425,6 +425,39 @@ let rec infer_const_attr ctx exp =
     let pos = LH.pos_of_expr exp in
     Error (pos, fun w -> ExpectedConstant (w, what))
   in
+  let rec infer_const_attr_ty ctx ty = 
+    let r2 = infer_const_attr_ty ctx in 
+    let ty = expand_type_syn ctx ty in
+    match ty with 
+    | LA.RefinementType (_, (_, _, ty), e) -> 
+      combine (r2 ty) (r e) 
+    | LA.ArrayType (_, (ty, e)) -> 
+      combine (r2 ty) (r e) 
+    | LA.History (_, id) -> (
+      match lookup_ty ctx id with 
+      | None -> [R.ok ()] 
+      | Some ty -> r2 ty
+    )
+    | LA.TupleType (_, tys)  
+    | LA.GroupType (_, tys) -> 
+      List.fold_left combine [R.ok ()] (List.map r2 tys)
+    | LA.RecordType (_, _, tis) -> 
+      let tys = List.map (fun (_, _, ty) -> ty) tis in 
+      List.fold_left combine [R.ok ()] (List.map r2 tys)
+    | LA.Map (_, ty1, ty2)
+    | LA.TArr (_, ty1, ty2) ->
+      combine (r2 ty1) (r2 ty2)
+    | LA.IntRange (_, e1_opt, e2_opt) -> (
+      match e1_opt, e2_opt with 
+      | None, None -> [R.ok ()]
+      | None, Some e 
+      | Some e, None -> r e 
+      | Some e1, Some e2 -> combine (r e1) (r e2)
+     )
+    | LA.AbstractType _ | LA.EnumType _  
+    | LA.Bool _ | LA.Int _ | LA.Real _ | LA.SBitVector _ | LA.UBitVector _ 
+    | LA.UserType _ -> [R.ok ()]
+  in 
   match exp with
   | LA.Ident (_, i) ->
     let res =
@@ -478,8 +511,13 @@ let rec infer_const_attr ctx exp =
   | ArrayConstr (_, e1, e2) -> combine (r e1) (r e2)
   | IndexAccess (_, e1, e2, _) -> combine (r e1) (r e2)
   (* Quantified expressions *)
-  | Quantifier (_, _, _, _) ->
-    [error exp "quantified expression"]
+  | Quantifier (p, _, tis, e) ->
+    let ctx = List.fold_left (fun acc_ctx (_, id, ty) -> 
+      add_const acc_ctx id (LA.Ident (p, id)) ty Global
+    ) ctx tis in
+    let r1 = List.map (fun (_, _, ty) -> infer_const_attr_ty ctx ty) tis in 
+    let r1 = List.fold_left combine [R.ok ()] r1 in
+    combine r1 (infer_const_attr ctx e)
   (* Clock operators *)
   | When (_, e, _) ->
     List.map (fun _ -> error exp "when operator") (r e)
@@ -1472,6 +1510,7 @@ and infer_type_binary_op: tc_context -> NI.t option -> Lib.position
         (type_error pos (ExpectedType ((LA.Bool pos), ty2))))
       (type_error pos (ExpectedType ((LA.Bool pos), ty1)))
   | LA.In -> (
+    let* ty2 = expand_type_syn_reftype_history_subrange ctx ty2 in
     match ty2 with
     | LA.Map (_, given_index_type, _) -> (
       R.ifM (eq_lustre_type ctx ty1 given_index_type)
@@ -2227,7 +2266,7 @@ and check_ref_type_assumptions ctx src nname bound_var e =
 
 and check_map_type pos ctx ty = let r = check_map_type pos ctx in match ty with  
 | LA.Map _ | GroupType _ | ArrayType _ | History _ 
-| TArr _ | AbstractType _ -> type_error pos (UnsupportedMapType ty) 
+| TArr _ -> type_error pos (UnsupportedMapType ty) 
 | RecordType (_, _, tis) -> 
   Res.seq_ (List.map (fun (_, _, ty) -> r ty) tis)
 | RefinementType (_, (_, _, ty), _) -> 
@@ -2237,7 +2276,7 @@ and check_map_type pos ctx ty = let r = check_map_type pos ctx in match ty with
 | UserType _ -> 
   let* ty = expand_type_syn_reftype ctx ty in 
   r ty 
-| Bool _ | Int _ | IntRange _ | EnumType _ | Real _ | SBitVector _ | UBitVector _ -> Res.ok () 
+| AbstractType _ | Bool _ | Int _ | IntRange _ | EnumType _ | Real _ | SBitVector _ | UBitVector _ -> Res.ok () 
 
 and check_type_well_formed: tc_context -> source -> NI.t option -> bool -> tc_type -> ([> warning] list, [> error]) result
   = fun ctx src nname is_const ->
