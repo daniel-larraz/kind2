@@ -73,6 +73,11 @@ jobs:
     - name: Run ounit and regression tests
       run: opam exec make test
 
+    - name: Build user documentation
+      run: |
+        pip install sphinx sphinx-press-theme
+        make doc
+
     - name: Upload kind2 artifact
       if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
       uses: actions/upload-artifact@v4
