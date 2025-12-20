@@ -76,7 +76,7 @@ jobs:
     - name: Build user documentation
       if: runner.os == 'Linux' && runner.arch == 'X64'
       run: |
-        pip install sphinx sphinx-press-theme
+        pip install sphinx==8.2.3 sphinx-press-theme==0.9.1
         make doc
 
     - name: Upload kind2 artifact
