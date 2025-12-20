@@ -74,9 +74,9 @@ jobs:
       run: opam exec make test
 
     - name: Build user documentation
-      if: runner.os == 'Linux' && runner.arch == 'X64'
+      if: runner.os == 'Linux'
       run: |
-        sudo apt-get install -y latexmk texlive-latex-base texlive-latex-recommended lmodern
+        sudo apt-get install -y latexmk texlive-xetex lmodern
         pip install sphinx==8.2.3 sphinx-press-theme==0.9.1
         make doc
 
