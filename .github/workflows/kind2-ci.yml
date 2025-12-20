@@ -74,7 +74,7 @@ jobs:
       run: opam exec make test
 
     - name: Build user documentation
-      if: runner.os == 'Linux'
+      if: runner.os == 'Linux' && runner.arch == 'X64'
       run: |
         pip install sphinx sphinx-press-theme
         make doc
