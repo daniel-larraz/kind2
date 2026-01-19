@@ -1,21 +1,14 @@
 name: Kind 2 Nightlies / Release
 
 on:
-  workflow_dispatch:
-  # Run the nightly build at 8 AM UTC / 2 AM Central
-  schedule:
-    - cron: "0 8 * * *"
   push:
-    # Sequence of patterns matched against refs/tags
-    tags:
-      - 'v*'
 
 env:
     HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
 
 jobs:
   get-nightly-ready:
-    if: github.repository == 'kind2-mc/kind2' && !startsWith(github.event.ref, 'refs/tags/v')
+    if: true
     runs-on: ubuntu-latest
 
     steps:
@@ -61,7 +54,7 @@ jobs:
   build:
     if: |
       always()
-      && github.repository == 'kind2-mc/kind2'
+      && true
       && contains(needs.*.result, 'success')
       && !contains(needs.*.result, 'failure')
 
