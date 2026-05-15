@@ -490,7 +490,11 @@ node_decl:
   option(SEMICOLON);
   r = option(contract_spec); 
   {
-    (NI.mk_node_id n, p, List.flatten i, List.flatten o, r)
+    let outputs = List.flatten o in
+    if outputs = [] then
+      fail_at_position (mk_pos $startpos(o))
+        "Node/function declarations must declare at least one output variable";
+    (NI.mk_node_id n, p, List.flatten i, outputs, r)
   }
 
 (* A node definition (locals + body). *)
@@ -814,9 +818,6 @@ left_side:
 
   (* Parenthesized list *)
   | LPAREN; l = struct_item_list; RPAREN { A.StructDef (mk_pos $startpos, l) }
-
-  (* Empty list *)
-  | LPAREN; RPAREN { A.StructDef (mk_pos $startpos, []) }
 
 
 (* Item in a structured equation *)
