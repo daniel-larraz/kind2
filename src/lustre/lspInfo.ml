@@ -130,7 +130,7 @@ let lsp_function_json ppf { Ast.start_pos = spos; Ast.end_pos = epos }
      \"startColumn\" : %d,@,\
      \"endLine\" : %d,@,\
      \"endColumn\" : %d@]@.}@."
-    (if func_attrs.is_lemma then "lemma" else "function")
+    (if func_attrs.is_lemma then "function" else "function")
     NodeId.pp_print_node_id_user_name node_id
     imported func_attrs.is_rec pp_print_fname_json file slnum scnum
     elnum ecnum

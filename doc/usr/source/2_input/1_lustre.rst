@@ -894,21 +894,37 @@ as well as writing ``if`` statements that do not have any ``else`` or ``elsif`` 
 When blocks
 ^^^^^^^^^^^
 Kind 2 also supports ``when`` blocks, which are similar in structure to ``if``
-statements but use *lazy* branch semantics, like ``if ... then ... otherwise ...``
-expressions.
+statements but use *lazy* branch semantics:
 
 .. code-block:: none
 
    when condition1 then
       y1 = expr1;
       y2 = expr2;
-   elsif condition2 then
+   else
       y1 = expr3;
       y2 = expr4;
-   else
-      y1 = expr5;
-      y2 = expr6;
    end
+
+
+Additional branches can be expressed by nesting ``when`` blocks inside the ``else`` branch:
+
+.. code-block:: none
+
+   when condition1 then
+      y1 = expr1;
+      y2 = expr2;
+   else
+      when condition2 then
+         y1 = expr3;
+         y2 = expr4;
+      else
+         y1 = expr5;
+         y2 = expr6;
+      end
+   end
+
+**Semantics**
 
 At each step, only the selected branch is evaluated.
 In particular, branch expressions that are not selected are not evaluated.
@@ -916,8 +932,8 @@ This is useful when one branch relies on assumptions that do not hold in other
 cases.
 
 As for ``if`` blocks, ``when`` blocks are statement-level syntax sugar.
-For each assigned variable, the block above corresponds to nested lazy
-``if ... then ... otherwise ...`` expressions.
+For each assigned variable, the blocks above correspond to nested lazy
+``when ... then ... else ...`` expressions.
 
 Current restrictions for ``when`` blocks are:
 
@@ -926,6 +942,38 @@ Current restrictions for ``when`` blocks are:
 * Branch expressions cannot call Lustre nodes (calls to functions are allowed).
 * ``if`` blocks cannot be nested inside ``when`` blocks, and ``when`` blocks
   cannot be nested inside ``if`` blocks.
+
+
+Cond blocks
+^^^^^^^^^^^
+Kind 2 also supports ``cond`` blocks, which use a pattern-matching style with
+multiple guarded branches and an ``otherwise`` clause:
+
+.. code-block:: none
+
+   cond
+     | condition1:
+        y1 = expr1;
+        y2 = expr2;
+     | condition2:
+        y1 = expr3;
+        y2 = expr4;
+     otherwise:
+        y1 = expr5;
+        y2 = expr6;
+   end
+
+The semantics of ``cond`` blocks is the same as for ``when`` blocks: at each
+step, only the selected branch is evaluated, and branch expressions that are
+not selected are not evaluated.
+
+Current restrictions for ``cond`` blocks are the same as for ``when`` blocks:
+
+* Branch expressions cannot contain temporal operators (for example ``pre`` or
+   ``->``).
+* Branch expressions cannot call Lustre nodes (calls to functions are allowed).
+* ``if`` blocks cannot be nested inside ``cond`` blocks, and ``cond`` blocks
+   cannot be nested inside ``if`` blocks.
 
 
 Frame conditions

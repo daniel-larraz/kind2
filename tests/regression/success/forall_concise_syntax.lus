@@ -6,9 +6,7 @@ let
   out = inp + 1;
 tel
 
-type Pos = subtype { x: int | x > 0 };
-
 node N() returns ()
 let
-  check "P1" exists (i: Pos) F(i) > i;
+  check "P1" forall (i: int | i > 0) F(i) > i;
 tel
