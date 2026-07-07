@@ -911,6 +911,9 @@ let call_terms_of_node_call mk_fresh_state_var globals caller_comp_type
     |> List.filter (fun p ->
       match P.get_prop_original_source p with
       | P.Assumption _ -> true
+      (* Candidate invariants are lifted so that, once proven, they can
+         strengthen the analysis of the calling node *)
+      | P.Candidate _ -> not (Flags.modular ())
       | _ -> Flags.check_subproperties () && not (Flags.modular ())
     )
     |> List.fold_left (
@@ -1101,15 +1104,195 @@ let add_call_context call_context init_term trans_term =
 
 (* Add constraints from node calls to initial state constraint and
    transition relation *)
-let rec constraints_of_node_calls 
+(* ********************************************************************** *)
+(* Candidate invariants for held variables of clocked when-block calls    *)
+(* ********************************************************************** *)
+
+(* Detects, among the caller's equations, the variables defined by a when
+   block as [x = when c then <output of the call> else last x] (or with the
+   else branch omitted inside a frame block, which also holds the previous
+   value). After compilation such a variable is defined, component-wise, by
+   an equation whose step expression is [ite(c, t, pre x)], where [t] is (a
+   copy of) an output of the call activated on [c], and where the else branch
+   may go through the local introduced for [last x]. Returns, for each such
+   component, the held state variable, the call output it is tied to, and
+   the term of its initial value when the candidate invariant may safely
+   refer to it (i.e. when all its variables survive in the final transition
+   system). *)
+let ties_of_activated_call globals caller_node clock call_outputs =
+  let caller_eqs = caller_node.N.equations in
+  let output_svs = D.values call_outputs in
+  let is_output sv = List.exists (StateVar.equal_state_vars sv) output_svs in
+  let def_of sv =
+    List.find_map
+      (fun ((sv', bounds), e) ->
+        if bounds = [] && StateVar.equal_state_vars sv' sv then Some e
+        else None)
+      caller_eqs
+  in
+  let dest_ite t =
+    try
+      match Term.destruct t with
+      | Term.T.App (s, [c; th; el]) when Symbol.node_of_symbol s = `ITE ->
+        Some (c, th, el)
+      | _ -> None
+    with Invalid_argument _ -> None
+  in
+  let dest_var_at offset t =
+    if Term.is_free_var t then
+      let v = Term.free_var_of_term t in
+      if Var.is_state_var_instance v
+      && Numeral.(equal (Var.offset_of_state_var_instance v) offset)
+      then Some (Var.state_var_of_state_var_instance v)
+      else None
+    else None
+  in
+  (* Peels nested array selections, returning the base term and the list of
+     index terms. Components of map- or array-valued variables are defined by
+     equations over bound index variables, e.g.
+     [x[i] = ite(c, select(t, i), select(pre x, i))]. *)
+  let dest_selects t =
+    let rec go t acc =
+      match Term.destruct t with
+      | Term.T.App (s, [a; i]) when
+          (match Symbol.node_of_symbol s with `SELECT _ -> true | _ -> false) ->
+        go a (i :: acc)
+      | _ -> t, acc
+      | exception Invalid_argument _ -> t, acc
+    in
+    go t []
+  in
+  let def_of_any sv =
+    List.find_map
+      (fun ((sv', _), e) ->
+        if StateVar.equal_state_vars sv' sv then Some e else None)
+      caller_eqs
+  in
+  (* Does the step term [c] denote the activation clock? It is either the
+     clock variable itself, or the guard expression the clock variable
+     abstracts. *)
+  let is_clock_cond c =
+    match dest_var_at E.cur_offset c with
+    | Some sv -> StateVar.equal_state_vars sv clock
+    | None -> (
+      match def_of clock with
+      | Some e -> Term.equal (E.unsafe_term_of_expr e.E.expr_step) c
+      | None -> false)
+  in
+  (* Resolves the step term [t] through (possibly bounded) copy equations to
+     an output of the call, if any. *)
+  let rec output_of depth t =
+    match dest_var_at E.cur_offset t with
+    | Some sv when is_output sv -> Some sv
+    | Some sv when depth > 0 -> (
+      match def_of_any sv with
+      | Some e ->
+        let base, _ = dest_selects (E.unsafe_term_of_expr e.E.expr_step) in
+        output_of (depth - 1) base
+      | None -> None)
+    | _ -> None
+  in
+  (* Does the base term [t] of the else branch denote the previous value of
+     [x], possibly through the local introduced for [last x] and through
+     (possibly bounded) copy equations? *)
+  let rec is_held_base x depth t =
+    match dest_var_at E.pre_offset t with
+    | Some sv -> StateVar.equal_state_vars sv x
+    | None ->
+      depth > 0 &&
+      (match dest_var_at E.cur_offset t with
+       | Some g -> (
+         match def_of_any g with
+         | Some e ->
+           let base, _ =
+             dest_selects (E.unsafe_term_of_expr e.E.expr_step)
+           in
+           is_held_base x (depth - 1) base
+         | None -> false)
+       | None -> false)
+  in
+  (* The initial value of [x], resolved through the copy locals. *)
+  let rec init_value_of depth t =
+    match dest_var_at E.base_offset t with
+    | Some sv when depth > 0 -> (
+      match def_of sv with
+      | Some e -> init_value_of (depth - 1) (E.unsafe_term_of_expr e.E.expr_init)
+      | None -> t)
+    | _ -> t
+  in
+  (* The candidate invariant may only refer to the initial value if all its
+     variables remain declared in the final transition system: stateless
+     locals are let-eliminated by {!constraints_of_equations}. *)
+  let stateful =
+    lazy (N.stateful_vars_of_node globals.G.state_var_bounds caller_node)
+  in
+  let safe_init_value t =
+    Term.state_vars_of_term t
+    |> SVS.for_all (fun sv ->
+        StateVar.is_const sv || SVS.mem sv (Lazy.force stateful))
+  in
+  (* For an array component, the initial value usually goes through generated
+     locals (e.g. the local introduced for an empty map or set), which are
+     stateless and thus not referable. Resolve the chain to a constant
+     per-index value if there is one. *)
+  let rec bounded_init_const depth t =
+    if SVS.is_empty (Term.state_vars_of_term t) then Some t
+    else
+      match dest_var_at E.base_offset t with
+      | Some sv when depth > 0 -> (
+        match def_of_any sv with
+        | Some e ->
+          let base, _ = dest_selects (E.unsafe_term_of_expr e.E.expr_init) in
+          bounded_init_const (depth - 1) base
+        | None -> None)
+      | _ -> None
+  in
+  List.filter_map
+    (fun ((x, _), e) ->
+      match dest_ite (E.unsafe_term_of_expr e.E.expr_step) with
+      | Some (c, th, el) when is_clock_cond c ->
+        (* For a scalar component the branches are the values themselves; for
+           an array component they are selections at the equation's bound
+           index variables, which must be the same on both sides. *)
+        let el_base, el_idx = dest_selects el in
+        let th_base, th_idx = dest_selects th in
+        let held =
+          (el_idx = [] ||
+           (List.length el_idx = List.length th_idx
+            && List.for_all2 Term.equal el_idx th_idx))
+          && is_held_base x 3 el_base
+        in
+        if not held then None
+        else (
+          match output_of 3 th_base with
+          | Some out ->
+            let init_term =
+              match dest_ite (E.unsafe_term_of_expr e.E.expr_init) with
+              | Some (_, _, el_i) ->
+                if el_idx = [] then (
+                  let t = init_value_of 3 el_i in
+                  if safe_init_value t then Some t else None)
+                else (
+                  let base, _ = dest_selects el_i in
+                  bounded_init_const 3 base)
+              | None -> None
+            in
+            Some (x, out, init_term)
+          | None -> None)
+      | _ -> None)
+    caller_eqs
+
+
+let rec constraints_of_node_calls
   mk_fresh_state_var
   globals
   comp_type
+  caller_node
   num_unrollings_map
   trans_sys_defs
   node_locals
   node_init_flags
-  node_props 
+  node_props
   node_hist_svars
   node_crt_svars
   subsystems
@@ -1196,6 +1379,7 @@ let rec constraints_of_node_calls
       mk_fresh_state_var
       globals
       comp_type
+      caller_node
       num_unrollings_map
       trans_sys_defs
       node_locals
@@ -1279,6 +1463,7 @@ let rec constraints_of_node_calls
       mk_fresh_state_var
       globals
       comp_type
+      caller_node
       num_unrollings_map
       trans_sys_defs
       node_locals
@@ -1658,6 +1843,144 @@ let rec constraints_of_node_calls
         node_props
     in
 
+    (* Candidate invariants from when-block held variables: once the
+       activation clock has ticked, a when-block variable whose off-branch
+       holds its previous value and the corresponding call output (which is
+       frozen whenever the clock is off) agree; and before the first tick,
+       the variable still has its initial value. Both hold by construction of
+       the when-block encoding, but stating them as candidate properties
+       (proven before they are used) makes the hold semantics visible to
+       k-induction, which otherwise cannot relate the frozen state of the
+       called node instance to the properties of the calling node. *)
+    let node_props, node_locals, tie_init_terms, tie_trans_terms =
+      match ties_of_activated_call globals caller_node clock call_outputs with
+      | [] -> node_props, node_locals, [], []
+      | ties ->
+        let has_ticked_prop =
+          E.cur_term_of_state_var TransSys.prop_base has_ticked
+        in
+        let ticked = Term.mk_or [clock_prop; has_ticked_prop] in
+        let row, col = row_col_of_pos call_pos in
+        let bump_to_prop t =
+          Term.bump_state Numeral.(TransSys.prop_base - E.base_offset) t
+        in
+        let mk_candidate guard term name =
+          { P.prop_name = name;
+            P.prop_source =
+              P.Candidate (Some (P.Generated (Some call_pos, [], P.Body)));
+            P.prop_term = Term.mk_implies [guard; term];
+            P.prop_status = P.PropUnknown;
+            P.prop_kind = P.Invariant;
+            P.prop_expr = None;
+          }
+        in
+        (* Kind 2's term language does not support equality between array
+           terms (see relation_to_nf in simplify.ml), so for an array-valued
+           component the equalities are stated pointwise, universally
+           quantified over the indexes. Quantified array selections are only
+           supported in the initial state constraint and transition relation,
+           where they are abstracted by {!Term.partial_selects}, so quantified
+           equalities are bound to fresh boolean state variables defined
+           there, and the candidates refer to those variables. *)
+        let mk_bool_defined name eq_p (locals, inits, transs) =
+          let sv =
+            mk_fresh_state_var
+              ?is_const:None
+              ?for_inv_gen:(Some false)
+              ?inst_for_sv:None
+              name
+              Type.t_bool
+          in
+          let def_at base =
+            Term.mk_eq
+              [E.cur_term_of_state_var base sv;
+               Term.bump_state Numeral.(base - TransSys.prop_base) eq_p]
+          in
+          E.cur_term_of_state_var TransSys.prop_base sv,
+          (sv :: locals,
+           def_at TransSys.init_base :: inits,
+           def_at TransSys.trans_base :: transs)
+        in
+        let quantified_pointwise_eq ty x_p rhs_of_select =
+          let index_vars =
+            Type.all_index_types_of_array ty |> List.map Var.mk_fresh_var
+          in
+          let select_term base =
+            List.fold_left
+              (fun acc iv -> Term.mk_select acc (Term.mk_var iv))
+              base index_vars
+          in
+          Term.mk_forall index_vars
+            (Term.mk_eq [select_term x_p; rhs_of_select select_term])
+          (* Encode the array selections as applications of the select
+             functions associated with the state variables *)
+          |> Term.convert_select
+        in
+        List.fold_left
+          (fun (props, locals, inits, transs) (x, out, init_term) ->
+            let x_p = E.cur_term_of_state_var TransSys.prop_base x in
+            let out_p = E.cur_term_of_state_var TransSys.prop_base out in
+            let ty = StateVar.type_of_state_var x in
+            let is_array = Type.is_array ty in
+            let row_col_name kind =
+              Format.asprintf
+                "Held value of '%s' %s clocked call at l%dc%d"
+                (StateVar.name_of_state_var x) kind row col
+            in
+            let tie_term, aux =
+              if is_array then
+                let eq_p =
+                  quantified_pointwise_eq ty x_p (fun sel -> sel out_p)
+                in
+                mk_bool_defined
+                  (Format.asprintf "wbt_l%dc%d_%a"
+                    row col StateVar.pp_print_state_var x)
+                  eq_p (locals, inits, transs)
+              else
+                Term.mk_eq [x_p; out_p], (locals, inits, transs)
+            in
+            let props =
+              mk_candidate ticked tie_term (row_col_name "consistent with")
+              :: props
+            in
+            let props, (locals, inits, transs) =
+              match init_term with
+              | None -> props, aux
+              | Some t ->
+                let init_eq_term, aux =
+                  if is_array then
+                    let eq_p =
+                      quantified_pointwise_eq ty x_p
+                        (fun _ -> bump_to_prop t)
+                    in
+                    let term, aux' =
+                      mk_bool_defined
+                        (Format.asprintf "wbi_l%dc%d_%a"
+                          row col StateVar.pp_print_state_var x)
+                        eq_p aux
+                    in
+                    term, aux'
+                  else
+                    Term.mk_eq [x_p; bump_to_prop t], aux
+                in
+                mk_candidate (Term.negate ticked) init_eq_term
+                  (row_col_name "initial before")
+                :: props,
+                aux
+            in
+            props, locals, inits, transs)
+          (node_props, node_locals, [], []) ties
+    in
+
+    let init_term = match tie_init_terms with
+      | [] -> init_term
+      | ts -> Term.mk_and (init_term :: ts)
+    in
+    let trans_term = match tie_trans_terms with
+      | [] -> trans_term
+      | ts -> Term.mk_and (trans_term :: ts)
+    in
+
     let guard_clock =
       match other_conds with
       | [] ->
@@ -1692,6 +2015,7 @@ let rec constraints_of_node_calls
       mk_fresh_state_var
       globals
       comp_type
+      caller_node
       num_unrollings_map
       trans_sys_defs
       node_locals
@@ -2692,6 +3016,7 @@ let rec trans_sys_of_node' options globals top_name analysis_param
               mk_fresh_state_var
               globals
               comp_type
+              node
               num_unrollings_map
               trans_sys_defs
               []  (* No lifted locals *)
