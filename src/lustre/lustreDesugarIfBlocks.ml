@@ -447,50 +447,6 @@ let extract_equations_from_if node_id ctx ib in_frame_block =
 (* When-block clocked-call consistency ties                               *)
 (* ********************************************************************** *)
 
-(* Returns the defining expression of [id], looking first among the node's
-   top-level equations, and then among the generated equations of [gids],
-   where [id] may be bound as a component of a pulled-out group equation
-   (see lustreRemoveMultAssign.ml). *)
-let find_def_of_ident gids nis id =
-  let from_items =
-    List.find_map (function
-      | A.Body (A.Equation (_, A.StructDef (_, [A.SingleIdent (_, x)]), rhs))
-        when HString.equal x id -> Some rhs
-      | _ -> None
-    ) nis
-  in
-  match from_items with
-  | Some _ -> from_items
-  | None ->
-    List.find_map (fun (_, _, lhs, rhs, _) ->
-      match lhs, rhs with
-      | A.StructDef (_, [A.SingleIdent (_, x)]), _ when HString.equal x id ->
-        Some rhs
-      | A.StructDef (_, sis), A.GroupExpr (_, A.ExprList, es)
-        when List.length sis = List.length es ->
-        List.find_map (fun (si, e) -> match si with
-          | A.SingleIdent (_, x) when HString.equal x id -> Some e
-          | _ -> None
-        ) (List.combine sis es)
-      | _ -> None
-    ) gids.GI.equations
-
-(* Checks whether [e] denotes the previous value of [x] (i.e. 'last x'),
-   possibly through locals such as the ones introduced by
-   lustreDesugarLast.ml or lustreRemoveMultAssign.ml. Returns [None] if it
-   does not, and [Some init_opt] if it does, where [init_opt] is the
-   initialization expression of [x] found along the way, if any. *)
-let rec held_expr_init gids nis x depth e =
-  match e with
-  | A.Pre (_, A.Ident (_, y)) when HString.equal y x -> Some None
-  | A.Arrow (_, init, A.Pre (_, A.Ident (_, y))) when HString.equal y x ->
-    Some (Some init)
-  | A.Ident (_, g) when depth > 0 -> (
-    match find_def_of_ident gids nis g with
-    | Some rhs -> held_expr_init gids nis x (depth - 1) rhs
-    | None -> None)
-  | _ -> None
-
 (* Returns the initialization expression of [x] in the frame block equations
    [frame_nes], if any. *)
 let frame_init_of frame_nes x =
@@ -500,26 +456,19 @@ let frame_init_of frame_nes x =
     | _ -> None
   ) frame_nes
 
-let syn_equal e1 e2 =
-  match AH.syn_expr_equal None e1 e2 with
-  | Ok b -> b
-  | Error _ -> false
-
-(* If [e] is (bound to) the output of a node call activated on the when-block
-   guard [cond], return the identifier bound to that output: either [e] is an
-   identifier defined by a pulled-out clocked call equation, or [e] is a
-   direct node call, in which case it is pulled out into a fresh local defined
-   by a clocked generated equation (returned in the gids, together with the
-   replacement expression for the branch). *)
+(* If [e] is (bound to) the output of a node call in a when-block branch,
+   return the identifier bound to that output: either [e] is an identifier
+   defined by a pulled-out clocked call equation, or [e] is a direct call, in
+   which case it is pulled out into a fresh local defined by a clocked
+   generated equation (returned in the gids, together with the replacement
+   expression for the branch). *)
 let call_output_of_expr gids ctx cond ty_opt e =
   match e with
   | A.Ident (_, t) ->
     let is_clocked_output =
-      List.exists (fun (_, _, lhs, rhs, src) ->
-        match src, lhs, rhs with
-        | Some (GI.ClockedOutput g), A.StructDef (_, sis), A.Call (_, _, f, _) ->
-          syn_equal g cond &&
-          Ctx.node_id_is_node ctx f &&
+      List.exists (fun (_, _, lhs, _, src) ->
+        match src, lhs with
+        | Some (GI.ClockedOutput _), A.StructDef (_, sis) ->
           List.exists
             (function A.SingleIdent (_, y) -> HString.equal y t | _ -> false)
             sis
@@ -527,7 +476,7 @@ let call_output_of_expr gids ctx cond ty_opt e =
       ) gids.GI.equations
     in
     if is_clocked_output then Some (t, GI.empty (), None) else None
-  | A.Call (pos, _, f, _) when Ctx.node_id_is_node ctx f -> (
+  | A.Call (pos, _, _, _) -> (
     match ty_opt with
     | None -> None
     | Some ty ->
@@ -549,19 +498,19 @@ let call_output_of_expr gids ctx cond ty_opt e =
         Some (name, gids, Some (A.Ident (pos, name))))
   | _ -> None
 
-(* For each variable [x] defined by this when-block as
-     x = when c then <output of node call> else <last x>
-   (or with the else branch omitted inside a frame block, which also holds the
-   previous value), generate a boolean local [tie = (x = t)], where [t] is the
-   local bound to the output of the activated call, and, when the initial
-   value [init] of [x] is available, a boolean local [init_tie = (x = init)].
-   The tuple [(tie, init_tie, t, x)] is recorded in the gids. LustreTransSys
-   turns each tuple into candidate invariants expressing that, once the clock
-   has ticked, the held variable and the (frozen) call output agree, and that,
-   before the first tick, the held variable still has its initial value; this
-   makes the hold semantics of the activation encoding visible to
-   k-induction. *)
-let mk_clocked_call_ties ctx gids nis frame_nes in_frame_block lhss_poss trees =
+(* For each variable [x] defined by a when-block branch as (bound to) the
+   output [t] of a node call, generate a boolean local [tie = (x = t)] and,
+   when [x] has an initialization [init] in the enclosing frame block, a
+   boolean local [init_tie = (x = init)]. The tuple [(tie, init_tie, t, x)] is
+   recorded in the gids. LustreTransSys turns each tuple into candidate
+   invariants expressing that, once the clock has ticked, [x] and the (frozen)
+   call output agree, and that, before the first tick, [x] still has its
+   initial value; this makes the hold semantics of the activation encoding
+   visible to k-induction. The candidates are generated without checking that
+   the off-branch of [x] holds its previous value: they are only invariant in
+   that case, but since candidate properties are proven before they are used,
+   an inapplicable candidate is simply disproved and dropped. *)
+let mk_clocked_call_ties ctx gids frame_nes lhss_poss trees =
   let mk_bool_local pos suffix eq_expr =
     i := !i + 1;
     let name = HString.mk_hstring (string_of_int !i ^ "_" ^ suffix) in
@@ -577,43 +526,31 @@ let mk_clocked_call_ties ctx gids nis frame_nes in_frame_block lhss_poss trees =
     List.map2 (fun (lhs, _) tree ->
       match tree, lhs with
       | Node (Leaf (Some then_e), cond, else_leaf),
-        A.StructDef (_, [A.SingleIdent (pos, x)]) ->
-        let held = (match else_leaf with
-          | Leaf None -> if in_frame_block then Some None else None
-          | Leaf (Some e) -> held_expr_init gids nis x 3 e
-          | Node _ -> None)
-        in (
-        match held with
-        | None -> tree, None
-        | Some init_opt ->
-          let init_opt = (match init_opt with
-            | Some _ -> init_opt
-            | None -> frame_init_of frame_nes x)
+        A.StructDef (_, [A.SingleIdent (pos, x)]) -> (
+        let ty_opt = get_tree_type ctx lhs in
+        match call_output_of_expr gids ctx cond ty_opt then_e with
+        | Some (t, call_gids, new_then) ->
+          let tree = match new_then with
+            | Some e -> Node (Leaf (Some e), cond, else_leaf)
+            | None -> tree
           in
-          let ty_opt = get_tree_type ctx lhs in
-          match call_output_of_expr gids ctx cond ty_opt then_e with
-          | Some (t, call_gids, new_then) ->
-            let tree = match new_then with
-              | Some e -> Node (Leaf (Some e), cond, else_leaf)
-              | None -> tree
-            in
-            let tie, tie_gids =
-              mk_bool_local pos GI.clocked_call_tie
-                (A.CompOp (pos, A.Eq, A.Ident (pos, x), A.Ident (pos, t)))
-            in
-            let init_tie, init_gids = (match init_opt with
-              | Some init ->
-                let init_tie, init_gids =
-                  mk_bool_local pos GI.clocked_call_tie
-                    (A.CompOp (pos, A.Eq, A.Ident (pos, x), init))
-                in
-                Some init_tie, init_gids
-              | None -> None, GI.empty ())
-            in
-            tree,
-            Some ((tie, init_tie, t, x),
-                  GI.union call_gids (GI.union tie_gids init_gids))
-          | None -> tree, None)
+          let tie, tie_gids =
+            mk_bool_local pos GI.clocked_call_tie
+              (A.CompOp (pos, A.Eq, A.Ident (pos, x), A.Ident (pos, t)))
+          in
+          let init_tie, init_gids = (match frame_init_of frame_nes x with
+            | Some init ->
+              let init_tie, init_gids =
+                mk_bool_local pos GI.clocked_call_tie
+                  (A.CompOp (pos, A.Eq, A.Ident (pos, x), init))
+              in
+              Some init_tie, init_gids
+            | None -> None, GI.empty ())
+          in
+          tree,
+          Some ((tie, init_tie, t, x),
+                GI.union call_gids (GI.union tie_gids init_gids))
+        | None -> tree, None)
       | _ -> tree, None
     ) lhss_poss trees
   in
@@ -628,7 +565,7 @@ let mk_clocked_call_ties ctx gids nis frame_nes in_frame_block lhss_poss trees =
 (** Helper function for 'desugar_node_item' that converts WhenBlocks to a list
     of lazy ITEs (if-then-otherwise). Same steps as extract_equations_from_if
     but uses tree_to_lazy_ite to produce LazyIte expressions. *)
-let extract_equations_from_when node_id ctx gids nis frame_nes wb in_frame_block =
+let extract_equations_from_when node_id ctx gids frame_nes wb in_frame_block =
   update_if_position_info node_id wb;
   let* tree_map = when_block_to_trees wb in
   let (lhss_poss, trees) = LhsMap.bindings (tree_map) |> List.split in
@@ -649,7 +586,7 @@ let extract_equations_from_when node_id ctx gids nis frame_nes wb in_frame_block
       ) lhss trees)
   in
   let trees, tie_gids =
-    mk_clocked_call_ties ctx gids nis frame_nes in_frame_block lhss_poss trees
+    mk_clocked_call_ties ctx gids frame_nes lhss_poss trees
   in
   let lhs_poss = List.map (fun (A.StructDef (pos, _), _) -> pos) lhss_poss in
   let rhs_poss = List.map snd lhss_poss in
@@ -671,13 +608,13 @@ let extract_equations_from_when node_id ctx gids nis frame_nes wb in_frame_block
     local declarations (if we introduce new local variables), the converted
     node_item list in the form of ITEs, and any gids).
 *)
-let rec desugar_node_item node_id ctx node_gids all_nis frame_nes in_frame_block ni = match ni with
+let rec desugar_node_item node_id ctx node_gids frame_nes in_frame_block ni = match ni with
   | A.IfBlock _ as ib -> extract_equations_from_if node_id ctx ib in_frame_block
   | A.WhenBlock _ as wb ->
-    extract_equations_from_when node_id ctx node_gids all_nis frame_nes wb in_frame_block
+    extract_equations_from_when node_id ctx node_gids frame_nes wb in_frame_block
   | A.FrameBlock (pos, vars, nes, nis) ->
     let* res =
-      R.seq (List.map (desugar_node_item node_id ctx node_gids all_nis nes true) nis)
+      R.seq (List.map (desugar_node_item node_id ctx node_gids nes true) nis)
     in
     let decls, nis, gids = split_and_flatten3 res in
     R.ok (decls, [A.FrameBlock(pos, vars, nes, nis)], gids)
@@ -695,7 +632,7 @@ let desugar_node_decl ctx gids_map decl = match decl with
       | Some gids -> gids
       | None -> GI.empty ()
     in
-    let* nis' = R.seq (List.map (desugar_node_item node_id ctx node_gids nis [] false) nis) in
+    let* nis' = R.seq (List.map (desugar_node_item node_id ctx node_gids [] false) nis) in
     let new_decls, nis, gids = split_and_flatten3 nis' in
     let gids = List.fold_left GI.union (GI.empty ()) gids in
     R.ok (A.FuncDecl (s, (node_id, b, opac, nps, cctds, ctds, new_decls @ nlds, nis, co), is_rec),
@@ -707,7 +644,7 @@ let desugar_node_decl ctx gids_map decl = match decl with
       | Some gids -> gids
       | None -> GI.empty ()
     in
-    let* nis' = R.seq (List.map (desugar_node_item node_id ctx node_gids nis [] false) nis) in
+    let* nis' = R.seq (List.map (desugar_node_item node_id ctx node_gids [] false) nis) in
     let new_decls, nis, gids = split_and_flatten3 nis' in
     let gids = List.fold_left GI.union (GI.empty ()) gids in
     R.ok (A.NodeDecl (s, (node_id, b, opac, nps, cctds, ctds, new_decls @ nlds, nis, co)), NI.Map.singleton node_id gids)
