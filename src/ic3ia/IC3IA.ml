@@ -282,6 +282,14 @@ let ig_newid =
   let r = ref 0 in
   fun () -> incr r; Format.sprintf "g%d" !r
 
+(* True if the term mentions an uninterpreted constant that Z3's quantifier
+   elimination invented: a fresh name containing '!' (e.g. "X140!427600") that
+   is not part of the system and was never declared. Asserting such an atom
+   makes the solver fail with "unknown constant". *)
+let has_fresh_uf =
+  Term.exists_uf_symbol
+    (fun uf -> String.contains (UfSymbol.name_of_uf_symbol uf) '!')
+
 let refine fwd solver sys predicates cubes =
 
   let len = List.length cubes in
@@ -448,19 +456,24 @@ let refine fwd solver sys predicates cubes =
     |> Term.TermSet.elements
     |> List.iteri (fun i t -> Format.printf "ATOM%d: %a@." i Term.pp_print_term t);*)
 
-    (* Z3's quantifier elimination can return non-linear atoms (e.g. a product
-       of two integer variables) even when its input is linear; cvc5 does not.
-       For a linear transition system such atoms are spurious, and adding them
-       as predicates would make the SMT solver reject later queries with
-       "logic does not support non-linear arithmetic". Drop them here. *)
-    let atoms =
+    (* Z3's quantifier elimination can return atoms outside the system's
+       signature — a non-linear term (a product of two variables) when the
+       system is linear, or a fresh uninterpreted constant that was never
+       declared; cvc5 does not. Such atoms are spurious and make the SMT solver
+       reject later queries ("logic does not support non-linear arithmetic" /
+       "unknown constant"). Drop them so they never become predicates. *)
+    let system_is_linear =
       match TransSys.get_logic sys with
-      | `Inferred l when not (TermLib.FeatureSet.mem TermLib.NA l) ->
-        Term.TermSet.filter
-          (fun a ->
-            not (TermLib.FeatureSet.mem TermLib.NA (TermLib.logic_of_term [] a)))
-          atoms
-      | _ -> atoms
+      | `Inferred l -> not (TermLib.FeatureSet.mem TermLib.NA l)
+      | _ -> false
+    in
+    let atoms =
+      Term.TermSet.filter
+        (fun a ->
+          not (has_fresh_uf a)
+          && not (system_is_linear
+                  && TermLib.FeatureSet.mem TermLib.NA (TermLib.logic_of_term [] a)))
+        atoms
     in
 
     add_predicates solver predicates atoms

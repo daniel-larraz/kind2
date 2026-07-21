@@ -1162,6 +1162,16 @@ let normalize_if_inconsistent solver term =
   
 let get_qe_interpolants fwd solver groups =
 
+  (* Z3's qe2 tactic can introduce fresh uninterpreted constants in its output
+     (undeclared, with names containing '!', e.g. "X140!427600"). Such a term
+     cannot be asserted back into a solver — it fails with "unknown constant" —
+     so we must not run solver-based simplification/normalization on it. The
+     term is still returned; IC3IA drops the atoms that mention the constant. *)
+  let has_fresh_uf =
+    Term.exists_uf_symbol
+      (fun uf -> String.contains (UfSymbol.name_of_uf_symbol uf) '!')
+  in
+
   let get_interpolant solver t1 t2 =
     let vars =
       Var.VarSet.diff (Term.vars_of_term t2) (Term.vars_of_term t1)
@@ -1170,10 +1180,12 @@ let get_qe_interpolants fwd solver groups =
     match vars with
     | [] -> Term.negate t2 |> simplify_term solver
     | _ -> (
-      let forall_term = Term.mk_forall vars (Term.negate t2) in
-      get_qe_term solver forall_term
-      |> Term.mk_and
-      |> simplify_term solver
+      let qe =
+        Term.mk_forall vars (Term.negate t2)
+        |> get_qe_term solver
+        |> Term.mk_and
+      in
+      if has_fresh_uf qe then qe else simplify_term solver qe
     )
   in
 
@@ -1193,10 +1205,15 @@ let get_qe_interpolants fwd solver groups =
   List.fold_left
     (fun itps (a, b) ->
       let prev_itp = List.hd itps in
-      let i = get_interpolant solver
+      let raw = get_interpolant solver
         (Term.mk_and [prev_itp; a])
         (Term.mk_and b)
-        |> normalize_if_inconsistent solver
+      in
+      (* Only normalize (which re-asserts the term) when it is free of the fresh
+         constants Z3's qe2 may have introduced; otherwise keep it as is. *)
+      let i =
+        if has_fresh_uf raw then raw
+        else normalize_if_inconsistent solver raw
       in
       let i =
         try Simplify.simplify_term ~split_eq:true [] i with _ -> i

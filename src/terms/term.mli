@@ -679,6 +679,10 @@ val var_offsets_of_term : t -> Numeral.t option * Numeral.t option
 (** Return the select symbols occurring in the term *)
 val select_symbols_of_term : t -> Symbol.SymbolSet.t
 
+(** [exists_uf_symbol p t] is [true] if some uninterpreted symbol in [t]
+    satisfies [p]. *)
+val exists_uf_symbol : (UfSymbol.t -> bool) -> t -> bool
+
 (** Return the terms of the form (select ...) that appear in a term *)
 val select_terms : t -> TermSet.t
 

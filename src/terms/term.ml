@@ -1842,9 +1842,19 @@ let select_symbols_of_term term =
   |> ignore;
   !selm
 
+let exists_uf_symbol pred term =
+  eval_t ~fail_on_quantifiers:false
+    (fun flat sub ->
+      (match flat with
+       | T.App (s, _) | T.Const s ->
+         Symbol.is_uf s && pred (Symbol.uf_of_symbol s)
+       | T.Var _ -> false)
+      || List.exists (fun b -> b) sub)
+    term
+
 let select_terms term =
   eval_t ~fail_on_quantifiers:false
-    (function 
+    (function
       | T.App (s, _) as t when Symbol.is_select s ->
         fun _ -> TermSet.singleton (construct t)
       | _ -> List.fold_left TermSet.union TermSet.empty)
