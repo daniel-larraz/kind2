@@ -11,6 +11,12 @@ name: Kind 2 PR Benchmarks
 
 on:
   pull_request:
+  # Also on a push to a branch of the ZeroMQ removal work, so that its
+  # branches can be compared against main without opening a pull
+  # request for each of them.
+  push:
+    branches:
+      - 'no-zeromq-*'
 
 permissions:
   contents: read
@@ -21,6 +27,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # The two sides of the comparison. A pull request compares its head
+  # against the branch it targets; a push compares the commit against
+  # main, which is what a pull request for the branch would have used
+  # as its base.
+  HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+  BASE_REF: ${{ github.event.pull_request.base.sha || 'main' }}
   # Benchmark set: the Lustre files under FMCAD08/{Bool,Int,Real_Int} on the
   # main branch of kind2-mc/kind2-benchmarks. BENCHMARKS_SUBDIRS is a
   # space-separated list of directories (relative to the repo root) to run.
@@ -53,7 +65,7 @@ jobs:
       - name: Checkout Kind 2 (${{ matrix.side }})
         uses: actions/checkout@v6
         with:
-          ref: ${{ matrix.side == 'head' && github.event.pull_request.head.sha || github.event.pull_request.base.sha }}
+          ref: ${{ matrix.side == 'head' && env.HEAD_REF || env.BASE_REF }}
 
       - name: Update package information
         run: sudo apt-get update -y
@@ -117,12 +129,12 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
 
     steps:
-      # Drive the run with the PR head's copy of the harness, so it works even
+      # Drive the run with the head's copy of the harness, so it works even
       # when the base commit predates these scripts.
-      - name: Checkout benchmark harness (PR head)
+      - name: Checkout benchmark harness (head)
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.HEAD_REF }}
           sparse-checkout: scripts/benchmarks
           sparse-checkout-cone-mode: false
 
@@ -183,10 +195,10 @@ jobs:
     needs: benchmark
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout benchmark harness (PR head)
+      - name: Checkout benchmark harness (head)
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.HEAD_REF }}
           sparse-checkout: scripts/benchmarks
           sparse-checkout-cone-mode: false
 
