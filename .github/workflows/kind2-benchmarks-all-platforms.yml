@@ -159,8 +159,27 @@ jobs:
           name: kind2-${{ matrix.platform }}-${{ matrix.side }}
           path: kind2-bin
 
+      # The base side is main, which links against the ZeroMQ C library. It
+      # was installed on the runner that built it, and this is a different
+      # one: without it the binary does not start at all.
+      - name: Install ZeroMQ runtime (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -y && sudo apt-get install -y libzmq3-dev
+
+      - name: Install ZeroMQ runtime (macOS)
+        if: runner.os == 'macOS'
+        run: brew install zeromq
+
       - name: Make Kind 2 executable
         run: chmod +x kind2-bin/kind2
+
+      # A binary that cannot start looks exactly like a benchmark set that
+      # times out everywhere: the harness classifies every run by its output,
+      # and a run that produced none is a Timeout. Ask it for its version
+      # before trusting several hours of that.
+      - name: Check Kind 2 runs
+        run: |
+          ./kind2-bin/kind2 --version
 
       - name: Cache SMT solvers
         id: cache
