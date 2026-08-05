@@ -206,24 +206,33 @@ jobs:
           tar xzf mathsat.tar.gz
           cp "$MS_DIR/bin/mathsat" ~/solver-bin/
 
-      # MathSAT ships one build for macOS, which need not run on both of its
-      # architectures. Kind 2 falls back to Z3 for interpolation without it, on
-      # both sides of the comparison alike, so a platform without it still
-      # reports; it is dropped rather than left to fail mid-run.
+      - name: Check both solvers are in the cache
+        run: |
+          set -euo pipefail
+          ls -l ~/solver-bin/z3 ~/solver-bin/mathsat
+
+      # The macOS build of MathSAT is universal (x86_64 and arm64), so it runs
+      # on both of the macOS runners, but it loads GMP from the MacPorts path
+      # it was linked against and the runners carry Homebrew. Put the library
+      # where it looks for it.
+      - name: Give MathSAT the GMP it links against (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          brew install gmp
+          sudo mkdir -p /opt/local/lib
+          sudo ln -sf "$(brew --prefix gmp)/lib/libgmp.10.dylib" /opt/local/lib/libgmp.10.dylib
+
+      # Both solvers must work: Kind 2 interpolates with MathSAT, and falling
+      # back to Z3 for it would compare a different search from the other
+      # platforms'. Fail here rather than run for hours and report that.
       - name: Install SMT solvers
         run: |
-          set -uo pipefail
+          set -euo pipefail
           chmod +x ~/solver-bin/*
-          sudo cp ~/solver-bin/z3 /usr/local/bin/ 2>/dev/null || sudo cp ~/solver-bin/z3 /usr/bin/
+          sudo cp ~/solver-bin/z3 ~/solver-bin/mathsat /usr/local/bin/
           z3 --version
-          if sudo cp ~/solver-bin/mathsat /usr/local/bin/ 2>/dev/null || sudo cp ~/solver-bin/mathsat /usr/bin/; then
-            if mathsat -version >/dev/null 2>&1; then
-              echo "MathSAT: $(mathsat -version | head -1)"
-            else
-              echo "::warning::MathSAT does not run on ${{ matrix.platform }}; removing it, Kind 2 will interpolate with Z3"
-              sudo rm -f /usr/local/bin/mathsat /usr/bin/mathsat
-            fi
-          fi
+          mathsat -version | head -1
 
       - name: Checkout benchmarks
         uses: actions/checkout@v6
