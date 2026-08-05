@@ -1,0 +1,284 @@
+name: Kind 2 Benchmarks (all platforms)
+
+# The same head-vs-base comparison as kind2-pr-benchmarks.yml, run on every
+# platform Kind 2 supports rather than on linux-x86_64 alone, and reported once
+# per platform. Four platforms multiply the job count, so the benchmark set is
+# split into fewer shards than the pull request workflow uses: each job runs
+# more of the set and takes longer, and there are fewer of them at once.
+#
+# Not attached to pull requests. Push the branch, or start it by hand.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'bench-all-platforms*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The two sides of the comparison: the pushed commit against main.
+  HEAD_REF: ${{ github.sha }}
+  BASE_REF: main
+  BENCHMARKS_REPO: kind2-mc/kind2-benchmarks
+  BENCHMARKS_REF: main
+  BENCHMARKS_SUBDIRS: "FMCAD08/Bool FMCAD08/Int FMCAD08/Real_Int"
+  # Per-benchmark wall-clock timeout (seconds).
+  BENCH_TIMEOUT: "120"
+  # This MUST match the length of the `shard` matrix list of the benchmark job.
+  SHARD_COUNT: "2"
+  OCAML_VERSION: 5.5.0
+  Z3_VERSION: "4.15.3"
+  MATHSAT_VERSION: "5.6.17"
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }} ${{ matrix.side }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux-x86_64, linux-arm64, macos-x86_64, macos-arm64]
+        side: [head, base]
+        include:
+          - platform: linux-x86_64
+            os: ubuntu-latest
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+          - platform: macos-x86_64
+            os: macos-15-intel
+          - platform: macos-arm64
+            os: macos-latest
+    steps:
+      - name: Checkout Kind 2 (${{ matrix.side }})
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.side == 'head' && env.HEAD_REF || env.BASE_REF }}
+
+      - name: Update package information (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -y
+
+      - name: Update package information (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Untap aws to silence Homebrew trust warnings
+          # See https://github.com/actions/runner-images/issues/14232
+          brew untap aws/tap || true
+          brew update
+
+      # The base side is main, which still depends on the OCaml bindings for
+      # ZMQ and so on the ZeroMQ C library. Installing it up front keeps the
+      # build off opam's system-package handling, which differs per platform.
+      - name: Install ZeroMQ (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libzmq3-dev pkg-config
+
+      - name: Install ZeroMQ (macOS)
+        if: runner.os == 'macOS'
+        run: brew install zeromq pkg-config
+
+      - name: Set up OCaml ${{ env.OCAML_VERSION }}
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ${{ env.OCAML_VERSION }}
+          cache-prefix: bench-all-${{ matrix.platform }}-${{ matrix.side }}
+
+      - name: Build Kind 2 (${{ matrix.side }})
+        run: |
+          opam install -y . --deps-only
+          opam exec make build
+
+      - name: Upload Kind 2 binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: kind2-${{ matrix.platform }}-${{ matrix.side }}
+          path: bin/kind2
+
+  benchmark:
+    name: benchmark (${{ matrix.platform }} ${{ matrix.side }} ${{ matrix.shard }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    # Fewer shards means each job runs more of the set, and the macOS runners
+    # are the slowest of the four.
+    timeout-minutes: 360
+    strategy:
+      # Run every (platform, side, shard) independently; a failure on one still
+      # lets the others finish, which aids diagnosis.
+      fail-fast: false
+      matrix:
+        platform: [linux-x86_64, linux-arm64, macos-x86_64, macos-arm64]
+        side: [head, base]
+        # This list length MUST equal SHARD_COUNT above.
+        shard: [0, 1]
+        include:
+          - platform: linux-x86_64
+            os: ubuntu-latest
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+          - platform: macos-x86_64
+            os: macos-15-intel
+          - platform: macos-arm64
+            os: macos-latest
+
+    steps:
+      # Drive the run with the head's copy of the harness, so it works even
+      # when the base commit predates these scripts.
+      - name: Checkout benchmark harness (head)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.HEAD_REF }}
+          sparse-checkout: scripts/benchmarks
+          sparse-checkout-cone-mode: false
+
+      # run-benchmarks.sh uses mapfile, GNU timeout and date +%s.%N, none of
+      # which the bash 3.2 and BSD userland of macOS provide. The GNU ones go
+      # first in the PATH so that the harness is the same on every platform.
+      - name: Install GNU userland (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install coreutils bash
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix bash)/bin" >> "$GITHUB_PATH"
+
+      - name: Check the harness has what it needs
+        run: |
+          bash --version | head -1
+          timeout --version | head -1
+          date +%s.%N
+
+      - name: Download Kind 2 (${{ matrix.side }})
+        uses: actions/download-artifact@v7
+        with:
+          name: kind2-${{ matrix.platform }}-${{ matrix.side }}
+          path: kind2-bin
+
+      - name: Make Kind 2 executable
+        run: chmod +x kind2-bin/kind2
+
+      - name: Cache SMT solvers
+        id: cache
+        uses: actions/cache@v6
+        with:
+          path: ~/solver-bin
+          key: smt-solvers-${{ matrix.platform }}-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
+
+      - name: Download SMT solvers (on cache miss)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/solver-bin
+          case "${{ matrix.platform }}" in
+            linux-x86_64) Z3_DIR=z3-${Z3_VERSION}-x64-glibc-2.39   ; MS_DIR=mathsat-${MATHSAT_VERSION}-linux-x86_64  ;;
+            linux-arm64)  Z3_DIR=z3-${Z3_VERSION}-arm64-glibc-2.34 ; MS_DIR=mathsat-${MATHSAT_VERSION}-linux-aarch64 ;;
+            macos-x86_64) Z3_DIR=z3-${Z3_VERSION}-x64-osx-13.7.6   ; MS_DIR=mathsat-${MATHSAT_VERSION}-macos         ;;
+            macos-arm64)  Z3_DIR=z3-${Z3_VERSION}-arm64-osx-13.7.6 ; MS_DIR=mathsat-${MATHSAT_VERSION}-macos         ;;
+          esac
+          curl -sSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_DIR}.zip"
+          unzip -q z3.zip
+          cp "$Z3_DIR/bin/z3" ~/solver-bin/
+          curl -sSL -o mathsat.tar.gz "https://mathsat.fbk.eu/release/${MS_DIR}.tar.gz"
+          tar xzf mathsat.tar.gz
+          cp "$MS_DIR/bin/mathsat" ~/solver-bin/
+
+      # MathSAT ships one build for macOS, which need not run on both of its
+      # architectures. Kind 2 falls back to Z3 for interpolation without it, on
+      # both sides of the comparison alike, so a platform without it still
+      # reports; it is dropped rather than left to fail mid-run.
+      - name: Install SMT solvers
+        run: |
+          set -uo pipefail
+          chmod +x ~/solver-bin/*
+          sudo cp ~/solver-bin/z3 /usr/local/bin/ 2>/dev/null || sudo cp ~/solver-bin/z3 /usr/bin/
+          z3 --version
+          if sudo cp ~/solver-bin/mathsat /usr/local/bin/ 2>/dev/null || sudo cp ~/solver-bin/mathsat /usr/bin/; then
+            if mathsat -version >/dev/null 2>&1; then
+              echo "MathSAT: $(mathsat -version | head -1)"
+            else
+              echo "::warning::MathSAT does not run on ${{ matrix.platform }}; removing it, Kind 2 will interpolate with Z3"
+              sudo rm -f /usr/local/bin/mathsat /usr/bin/mathsat
+            fi
+          fi
+
+      - name: Checkout benchmarks
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.BENCHMARKS_REPO }}
+          ref: ${{ env.BENCHMARKS_REF }}
+          path: benchmarks
+
+      - name: Run benchmarks (${{ matrix.platform }}, ${{ matrix.side }}, shard ${{ matrix.shard }})
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+        run: |
+          bash scripts/benchmarks/run-benchmarks.sh \
+            "$PWD/kind2-bin/kind2" \
+            "${BENCH_TIMEOUT}" \
+            "$RUNNER_TEMP/${{ matrix.side }}-${{ matrix.shard }}.stat" \
+            benchmarks ${BENCHMARKS_SUBDIRS}
+
+      - name: Upload stat shard
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-stat-${{ matrix.platform }}-${{ matrix.side }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/${{ matrix.side }}-${{ matrix.shard }}.stat
+
+  compare:
+    name: compare (${{ matrix.platform }})
+    needs: benchmark
+    # Every platform is compared here: the comparison only reads the stat files
+    # the runs produced, so it needs nothing of the platform they came from.
+    runs-on: ubuntu-latest
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux-x86_64, linux-arm64, macos-x86_64, macos-arm64]
+    steps:
+      - name: Checkout benchmark harness (head)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.HEAD_REF }}
+          sparse-checkout: scripts/benchmarks
+          sparse-checkout-cone-mode: false
+
+      - name: Download stat shards of ${{ matrix.platform }}
+        uses: actions/download-artifact@v7
+        with:
+          pattern: benchmark-stat-${{ matrix.platform }}-*
+          merge-multiple: true
+          path: stats
+
+      # A platform whose runs all failed still reports, saying so, rather than
+      # taking the comparison of the other three down with it.
+      - name: Assemble per-side stat files
+        id: assemble
+        run: |
+          cat stats/head-*.stat > head.stat 2>/dev/null || : > head.stat
+          cat stats/base-*.stat > base.stat 2>/dev/null || : > base.stat
+          h=$(wc -l < head.stat); b=$(wc -l < base.stat)
+          echo "head: $h rows, base: $b rows"
+          if [ "$h" -eq 0 ] || [ "$b" -eq 0 ]; then
+            echo "have_results=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_results=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compare results
+        run: |
+          echo "## ${{ matrix.platform }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.assemble.outputs.have_results }}" != "true" ]; then
+            echo "No results: the benchmark jobs of this platform did not finish." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          bash scripts/benchmarks/compare-benchmarks.sh \
+            head.stat \
+            base.stat \
+            "$GITHUB_STEP_SUMMARY"
