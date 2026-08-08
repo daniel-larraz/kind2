@@ -1,0 +1,242 @@
+name: Kind 2 Windows Benchmarks
+
+# Runs the Windows build of Kind 2 over the benchmark set and reports what it
+# did with it. There is nothing to compare against: the branch this belongs to
+# is what first builds Kind 2 on Windows, so there is no earlier Windows binary
+# and main does not build there at all. The report is of one side.
+#
+# Not attached to pull requests. Push the branch, or start it by hand.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'windows-benchmarks*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BENCHMARKS_REPO: kind2-mc/kind2-benchmarks
+  BENCHMARKS_REF: main
+  BENCHMARKS_SUBDIRS: "FMCAD08/Bool FMCAD08/Int FMCAD08/Real_Int"
+  # Per-benchmark wall-clock timeout (seconds).
+  BENCH_TIMEOUT: "120"
+  # This MUST match the length of the `shard` matrix list of the benchmark job.
+  SHARD_COUNT: "4"
+  OCAML_VERSION: 5.5.0
+  Z3_VERSION: "4.15.3"
+  MATHSAT_VERSION: "5.6.17"
+
+jobs:
+  build:
+    name: build (windows)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up OCaml ${{ env.OCAML_VERSION }}
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ${{ env.OCAML_VERSION }}
+          cache-prefix: windows-benchmarks
+
+      - name: Install OCaml dependencies
+        shell: bash
+        run: opam install -y . --deps-only
+
+      - name: Build Kind 2
+        shell: bash
+        run: |
+          opam exec -- dune build -p kind2 @install
+          opam exec -- dune install -p kind2 --sections=bin --prefix .
+
+      - name: Upload Kind 2 binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: kind2-windows
+          path: bin/kind2.exe
+
+  benchmark:
+    name: benchmark (shard ${{ matrix.shard }})
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        # This list length MUST equal SHARD_COUNT above.
+        shard: [0, 1, 2, 3]
+
+    steps:
+      - name: Checkout benchmark harness
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/benchmarks
+          sparse-checkout-cone-mode: false
+
+      - name: Download Kind 2
+        uses: actions/download-artifact@v7
+        with:
+          name: kind2-windows
+          path: kind2-bin
+
+      # A Kind 2 that cannot start looks exactly like a benchmark set that
+      # times out everywhere, since the harness classifies each run by output
+      # a run that never started cannot produce. Ask it for its version first.
+      - name: Check Kind 2 runs
+        shell: bash
+        run: ./kind2-bin/kind2.exe --version
+
+      - name: Cache SMT solvers
+        id: cache
+        uses: actions/cache@v6
+        with:
+          path: ~/solver-bin
+          key: smt-solvers-windows-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
+
+      - name: Download SMT solvers (on cache miss)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/solver-bin
+          curl -sSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-win.zip"
+          unzip -q z3.zip
+          cp "z3-${Z3_VERSION}-x64-win/bin/z3.exe" ~/solver-bin/
+          curl -sSL -o mathsat.zip "https://mathsat.fbk.eu/release/mathsat-${MATHSAT_VERSION}-win64.zip"
+          unzip -q mathsat.zip
+          cp "mathsat-${MATHSAT_VERSION}-win64/bin/mathsat.exe" ~/solver-bin/
+
+      - name: Install SMT solvers
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -l ~/solver-bin/z3.exe ~/solver-bin/mathsat.exe
+          cygpath -w "$HOME/solver-bin" >> "$GITHUB_PATH"
+          "$HOME/solver-bin/z3.exe" --version
+          "$HOME/solver-bin/mathsat.exe" -version | head -1
+
+      # The harness is a bash script that wants GNU tools. Windows ships a
+      # timeout.exe and a find.exe of its own that do something else entirely,
+      # and picking those up would spoil a run of several hours quietly, so
+      # check what the names resolve to before starting.
+      - name: Check the harness has the tools it needs
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash --version | head -1
+          timeout --version | head -1 | grep -qi coreutils \
+            || { echo "::error::'timeout' is not GNU coreutils: $(command -v timeout)"; exit 1; }
+          find --version | head -1 | grep -qi findutils \
+            || { echo "::error::'find' is not GNU findutils: $(command -v find)"; exit 1; }
+          case "$(date +%s.%N)" in
+            *N) echo "::error::'date' does not support %N: $(command -v date)"; exit 1;;
+          esac
+          echo "bash, timeout, find and date are the GNU ones"
+
+      - name: Checkout benchmarks
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.BENCHMARKS_REPO }}
+          ref: ${{ env.BENCHMARKS_REF }}
+          path: benchmarks
+
+      - name: Run benchmarks (shard ${{ matrix.shard }})
+        shell: bash
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+        run: |
+          bash scripts/benchmarks/run-benchmarks.sh \
+            "$PWD/kind2-bin/kind2.exe" \
+            "${BENCH_TIMEOUT}" \
+            "$RUNNER_TEMP/windows-${{ matrix.shard }}.stat" \
+            benchmarks ${BENCHMARKS_SUBDIRS}
+
+      - name: Upload stat shard
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-stat-windows-${{ matrix.shard }}
+          path: ${{ runner.temp }}/windows-${{ matrix.shard }}.stat
+
+  report:
+    name: report
+    needs: benchmark
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download stat shards
+        uses: actions/download-artifact@v7
+        with:
+          pattern: benchmark-stat-windows-*
+          merge-multiple: true
+          path: stats
+
+      - name: Assemble the results
+        run: |
+          cat stats/windows-*.stat > windows.stat 2>/dev/null || : > windows.stat
+          echo "rows: $(wc -l < windows.stat)"
+
+      - name: Report
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import collections
+
+          rows = []
+          for line in open("windows.stat"):
+              f = line.split()
+              if len(f) >= 3:
+                  rows.append((f[0], f[1], float(f[2])))
+
+          print("## Kind 2 on Windows\n")
+          if not rows:
+              print("No results: the benchmark jobs did not finish.")
+              raise SystemExit
+
+          n = len(rows)
+          by = collections.Counter(o for _, o, _ in rows)
+          solved = by["Valid"] + by["Invalid"]
+          print(f"{n} benchmarks, {solved} solved "
+                f"({100.0 * solved / n:.1f}%), {sum(w for _, _, w in rows) / 60:.0f} minutes of wall time.\n")
+
+          print("| outcome | count |")
+          print("|---|---:|")
+          for outcome, count in by.most_common():
+              print(f"| {outcome} | {count} |")
+          print()
+
+          # An Error is Kind 2 failing rather than answering: on a platform
+          # this new, that is the number worth looking at first.
+          errors = [r for r in rows if r[1] not in ("Valid", "Invalid", "Timeout")]
+          if errors:
+              print(f"### {len(errors)} did not answer\n")
+              print("| benchmark | outcome | s |")
+              print("|---|---|---:|")
+              for name, outcome, wall in errors[:40]:
+                  print(f"| `{name}` | {outcome} | {wall:.1f} |")
+              if len(errors) > 40:
+                  print(f"\n…and {len(errors) - 40} more.")
+          else:
+              print("Every benchmark either answered or ran out of time; none failed.\n")
+
+          slow = sorted((r for r in rows if r[1] in ("Valid", "Invalid")),
+                        key=lambda r: -r[2])[:10]
+          if slow:
+              print("\n### Slowest solved\n")
+              print("| benchmark | outcome | s |")
+              print("|---|---|---:|")
+              for name, outcome, wall in slow:
+                  print(f"| `{name}` | {outcome} | {wall:.1f} |")
+          PY
+
+      - name: Upload the results
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-results-windows
+          path: windows.stat
