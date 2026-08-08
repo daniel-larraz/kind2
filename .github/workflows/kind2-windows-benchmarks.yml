@@ -99,7 +99,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/solver-bin
-          key: smt-solvers-windows-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
+          key: smt-solvers-windows-v2-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
 
       - name: Download SMT solvers (on cache miss)
         if: steps.cache.outputs.cache-hit != 'true'
@@ -109,10 +109,15 @@ jobs:
           mkdir -p ~/solver-bin
           curl -sSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-win.zip"
           unzip -q z3.zip
-          cp "z3-${Z3_VERSION}-x64-win/bin/z3.exe" ~/solver-bin/
           curl -sSL -o mathsat.zip "https://mathsat.fbk.eu/release/mathsat-${MATHSAT_VERSION}-win64.zip"
           unzip -q mathsat.zip
-          cp "mathsat-${MATHSAT_VERSION}-win64/bin/mathsat.exe" ~/solver-bin/
+          # The executables are not the solvers here: mathsat.exe is a 9kB
+          # launcher for mathsat.dll, which in turn wants gmp.dll. Take every
+          # executable and library of both, and let the loader find them beside
+          # the caller.
+          cp "z3-${Z3_VERSION}-x64-win/bin/"*.exe "z3-${Z3_VERSION}-x64-win/bin/"*.dll ~/solver-bin/ 2>/dev/null || true
+          cp "mathsat-${MATHSAT_VERSION}-win64/bin/"*.exe "mathsat-${MATHSAT_VERSION}-win64/bin/"*.dll ~/solver-bin/
+          ls -l ~/solver-bin/
 
       - name: Install SMT solvers
         shell: bash
