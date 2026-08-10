@@ -21,12 +21,11 @@
 
     Engines run in domains of a single process; a message is an OCaml
     value dropped into the in-memory mailbox of the receiver, without
-    any serialization. There are no background threads: sending is a
-    mutex-protected queue operation and {!S.recv} drains the mailbox of
-    the calling domain without blocking. {!S.wait_for_message} blocks
-    until the mailbox of the calling domain is not empty, so that a
-    domain with nothing to do until the next message does not have to
-    poll.
+    any serialization. Sending is a mutex-protected queue operation and
+    {!S.recv} drains the mailbox of the calling domain without
+    blocking. {!S.wait_for_message} blocks until the mailbox of the
+    calling domain is not empty, so that a domain with nothing to do
+    until the next message does not have to poll.
 
     @author Jason Oxley, Christoph Sticksel *)
 
@@ -109,10 +108,15 @@ sig
   val recv : unit -> (Lib.kind_module * message) list
 
   (** Block until a message is queued in the mailbox of the calling
-      domain. Returns immediately if the mailbox is not empty. Any
-      event a domain may wait for arrives as a message, including
-      termination requests, so waiting without a timeout cannot delay
-      shutdown. *)
+      domain, and at most for a fixed period. Returns immediately if
+      the mailbox is not empty.
+
+      The bound is what keeps a wait that mispredicted from stopping
+      the analysis: a caller that has nothing left to wake it is
+      delayed by that period, and must recheck its own state and
+      decide what to do, rather than block forever. Callers therefore
+      have to treat a return as "something may have happened", not as
+      "a message arrived". *)
   val wait_for_message : unit -> unit
 
   (** Purge the invariant manager mailbox. Should be called between two

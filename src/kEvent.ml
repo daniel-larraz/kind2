@@ -2219,9 +2219,12 @@ let recv () =
   with Messaging.NotInitialized -> []
 
 
-(* Block until a message is queued for the calling domain. Termination
-   requests arrive as messages too, so a waiting engine is woken up on
-   shutdown and raises {!Terminate} in its next call to {!recv}. *)
+(* Block until a message is queued for the calling domain, and at most
+   for a fixed period. Termination requests arrive as messages too, so
+   a waiting engine is woken up on shutdown and raises {!Terminate} in
+   its next call to {!recv}. The bound is what keeps an engine waiting
+   for something that never arrives as a message from blocking
+   forever. *)
 let wait_for_message () =
   try EventMessaging.wait_for_message ()
   (* Don't fail if not initialized. No message can ever arrive then:

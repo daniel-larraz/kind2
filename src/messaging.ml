@@ -36,12 +36,17 @@
    hashcons tables are protected by locks), so messages are passed by
    reference, without any serialization.
 
-   There are no background threads and no acknowledgement or resend
-   protocol: delivery is a mutex-protected queue operation and is
-   reliable by construction. [recv] drains the mailbox of the calling
-   domain without blocking; [wait_for_message] blocks the calling
-   domain until its mailbox is not empty, so that a domain with
-   nothing to do until the next message does not have to poll. *)
+   There is no acknowledgement or resend protocol: delivery is a
+   mutex-protected queue operation and is reliable by construction.
+   [recv] drains the mailbox of the calling domain without blocking;
+   [wait_for_message] blocks the calling domain until its mailbox is
+   not empty, so that a domain with nothing to do until the next
+   message does not have to poll.
+
+   The only background thread is the one waking the domains blocked in
+   [wait_for_message] at a fixed period, so that a domain waiting for
+   something that does not arrive as a message is delayed rather than
+   blocked forever. See [wake_period]. *)
 
 exception NotInitialized
 
@@ -181,6 +186,24 @@ struct
   (* Thread-safe mailbox                                                  *)
   (* ******************************************************************** *)
 
+  (* Longest a domain blocked in [wait_for_message] goes without being
+     woken up, in seconds.
+
+     Blocking until a message arrives is only correct as long as every
+     event a domain waits for does arrive as a message. That is what
+     the engines are written to expect, but a wait that turns out to
+     have nothing left to wake it must not stop the analysis: it is a
+     missed wakeup, and the engine that mispredicted should recheck and
+     move on, as it did when these waits were sleeps. A domain is
+     therefore woken at this period even when its mailbox stays empty,
+     and [wait_for_message] is a bounded wait rather than an indefinite
+     one. Waking on a message is unaffected, and stays immediate. *)
+  let wake_period = 0.1
+
+  (* Bumped by the waking thread. A blocked domain returns as soon as
+     it changes, so no domain waits for longer than [wake_period]. *)
+  let wake_count = Atomic.make 0
+
   (* A queue with O(1) enqueue: [front] is in order, [back] is
      reversed. [nonempty] is signalled whenever a message is added, so
      that the owner of the mailbox can block until a message arrives
@@ -213,11 +236,15 @@ struct
       mb.back <- [] ;
       msgs)
 
-  (* Block until the mailbox contains a message. Returns immediately
-     if the mailbox is not empty. *)
+  (* Block until the mailbox contains a message, and at most for
+     [wake_period]. Returns immediately if the mailbox is not empty. *)
   let wait_nonempty mb =
+    let waited_from = Atomic.get wake_count in
     Mutex.protect mb.lock (fun () ->
-      while mb.front = [] && mb.back = [] do
+      while
+        mb.front = [] && mb.back = []
+        && Atomic.get wake_count = waited_from
+      do
         Condition.wait mb.nonempty mb.lock
       done)
 
@@ -266,6 +293,42 @@ struct
   let role = Domain.DLS.new_key (fun () -> ref Uninitialized)
   let get_role () = !(Domain.DLS.get role)
   let set_role r = Domain.DLS.get role := r
+
+
+  (* ******************************************************************** *)
+  (* Waking the domains that are waiting                                  *)
+  (* ******************************************************************** *)
+
+  (* Wake every domain blocked on its mailbox, whether or not a message
+     arrived for it. Takes the locks in the order [broadcast_to_workers]
+     does, the registry before a mailbox. *)
+  let wake_waiting () =
+    Atomic.incr wake_count ;
+    let wake mb =
+      Mutex.protect mb.lock (fun () -> Condition.broadcast mb.nonempty)
+    in
+    wake im_inbox ;
+    Mutex.protect registry_lock (fun () ->
+      !workers |> List.iter (fun w -> wake w.ep_inbox))
+
+  let waking = Atomic.make false
+
+  (* Start the thread waking the waiting domains every [wake_period].
+
+     Called from the supervisor, whose domain runs as long as the
+     process does: the thread outlives the engines of every analysis,
+     and there is only ever one of it. It is never stopped, and the
+     process exits from under it. *)
+  let start_waking () =
+    if Atomic.compare_and_set waking false true then
+      Thread.create
+        (fun () ->
+          while true do
+            Thread.delay wake_period ;
+            wake_waiting ()
+          done)
+        ()
+      |> ignore
 
 
   (* ******************************************************************** *)
@@ -336,9 +399,9 @@ struct
     | Supervisor -> drain im_inbox
     | Worker ep -> drain ep.ep_inbox
 
-  (* Block until a message is queued for the calling domain. Any event
-     a domain may wait for arrives as a message, including termination
-     requests, so waiting without a timeout cannot delay shutdown. *)
+  (* Block until a message is queued for the calling domain, and at
+     most for [wake_period]. Termination requests arrive as messages
+     too, so a waiting domain is woken up as soon as one is sent. *)
   let wait_for_message () =
     match get_role () with
     | Uninitialized -> raise NotInitialized
@@ -365,7 +428,7 @@ struct
   let init_im () = ()
 
   (* Take the supervisor role *)
-  let run_im () = set_role Supervisor
+  let run_im () = set_role Supervisor ; start_waking ()
 
   (* Create and register the endpoint of a worker *)
   let init_worker mdl id () =
