@@ -691,10 +691,10 @@ let rec type_of_term' t = match T.destruct t with
            | a :: _ -> Type.elem_type_of_array (type_of_term' a)
            | _ -> assert false)
 
-        | `CONST_ARRAY _ (* ty_array *) ->
+        | `CONST_ARRAY ty_array ->
 
           (match l with
-           | [v] -> (type_of_term' v)
+           | [_] -> ty_array
            | _ -> assert false)
 
         (* Bitvector-valued function *)
@@ -2252,9 +2252,129 @@ let apply_subst sigma term =
     ) term
 
 
+(* Return [true] if the free variable [v] occurs in [term] *)
+let var_occurs v term = Var.VarSet.mem v (vars_of_term term)
 
 
-(* 
+(* Return [true] if [term] is the free variable [v] *)
+let is_the_var v term = match node_of_term term with
+  | T.FreeVar v' -> Var.equal_vars v v'
+  | _ -> false
+
+
+(* If [term] is an equality between the free variable [v] and a term in which
+   [v] does not occur, return that other term *)
+let key_of_index_eq v term = match node_of_term term with
+  | T.Node (s, [t1; t2]) when s == Symbol.s_eq ->
+    if is_the_var v t1 && not (var_occurs v t2) then Some t2
+    else if is_the_var v t2 && not (var_occurs v t1) then Some t1
+    else None
+  | _ -> None
+
+
+(* Split a condition into an equality [v = k] fixing the free variable [v] and
+   the remaining conditions, none of which may mention [v]. Sets and maps over
+   tuples are compiled to nested arrays, so a single element of such a
+   collection is picked out by a conjunction of equalities, one per
+   dimension. *)
+let split_index_eq v cond =
+  let conjuncts = match node_of_term cond with
+    | T.Node (s, l) when s == Symbol.s_and -> l
+    | _ -> [cond]
+  in
+  match List.partition (fun c -> key_of_index_eq v c <> None) conjuncts with
+  | [c], rest when List.for_all (fun c -> not (var_occurs v c)) rest ->
+    (match key_of_index_eq v c with Some k -> Some (k, rest) | None -> None)
+  | _ -> None
+
+
+(* Return an array term [a] such that [(select a v)] is equivalent to [term]
+   for every value of the free variable [v], or [None] if no such term can be
+   built with the operators of the SMT-LIB theory of arrays *)
+let rec array_of_index_abstraction v term =
+
+  if not (var_occurs v term) then
+
+    (* [term] does not depend on the index: a constant array *)
+    Some (mk_const_array
+            (Type.mk_array (type_of_term term) (Var.type_of_var v))
+            term)
+
+  else
+
+    match node_of_term term with
+
+    (* (select a v) with [v] not in [a]: the array is [a] itself *)
+    | T.Node (s, [a; i])
+      when Symbol.is_select s && is_the_var v i && not (var_occurs v a) ->
+      Some a
+
+    | T.Node (s, [c; e1; e2]) when s == Symbol.s_ite ->
+
+      if not (var_occurs v c) then (
+
+        (* (ite c e1 e2) with [v] not in [c]: the branch taken does not depend
+           on the index, so [select] distributes over the [ite] and it is
+           enough to abstract each branch. *)
+        match
+          array_of_index_abstraction v e1, array_of_index_abstraction v e2
+        with
+        | Some a1, Some a2 -> Some (mk_ite c a1 a2)
+        | _ -> None
+
+      )
+      else (
+
+        (* (ite (and c (= v k)) e1 e2) with [v] neither in [k] nor in [c]: a
+           store of [e1] at [k] in the array standing for [e2], guarded by
+           [c]. The [then] branch is only reached when the index is [k], so
+           occurrences of [v] in [e1] can be replaced by [k]. *)
+        match split_index_eq v c with
+        | Some (k, rest) -> (
+          match array_of_index_abstraction v e2 with
+          | Some a ->
+            let stored = mk_store a k (apply_subst [v, k] e1) in
+            Some (match rest with
+                  | [] -> stored
+                  | [c] -> mk_ite c stored a
+                  | _ -> mk_ite (mk_and rest) stored a)
+          | None -> None
+        )
+        | None -> None
+
+      )
+
+    | _ -> None
+
+
+(* Rewrite the equation [term], of the form [(= (select a v) rhs)] where [v]
+   is the head of [vars], into the equivalent equation [(= a rhs')] where
+   [rhs'] is an array term denoting the function [v |-> rhs]. The rewriting is
+   repeated, following [vars], for as long as it succeeds.
+
+   Returns the variables of [vars] that could not be eliminated together with
+   the rewritten equation. Universally quantifying the result over the
+   returned variables is equivalent to universally quantifying [term] over
+   [vars]. *)
+let rec elim_array_index_vars vars term = match vars with
+  | [] -> [], term
+  | v :: vars' -> (
+    match node_of_term term with
+    | T.Node (s, [lhs; rhs]) when s == Symbol.s_eq -> (
+      match node_of_term lhs with
+      | T.Node (s', [a; i])
+        when Symbol.is_select s' && is_the_var v i && not (var_occurs v a) -> (
+        match array_of_index_abstraction v rhs with
+        | Some arr -> elim_array_index_vars vars' (mk_eq [a; arr])
+        | None -> vars, term
+      )
+      | _ -> vars, term
+    )
+    | _ -> vars, term
+  )
+
+
+(*
    Local Variables:
    compile-command: "make -C .. -k"
    tuareg-interactive-program: "./kind2.top -I ./_build -I ./_build/SExpr"

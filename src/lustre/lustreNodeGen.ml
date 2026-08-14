@@ -1382,11 +1382,20 @@ and compile_ast_expr
           ) e (fst (list_split guard_arity arr_is)) in
           E.mk_and acc e
         ) E.t_true leaf_guards in
-        (* For equality:    forall (x: K) conditions =>  arr1[x]  = arr2[x] 
-           For disequality: exists (x: K) conditions and arr1[x] <> arr2[x]. 
-           For arrays, `conditions` are that the index is in range. 
+        (* For equality:    forall (x: K) conditions =>  arr1[x]  = arr2[x]
+           For disequality: exists (x: K) conditions and arr1[x] <> arr2[x].
+           For arrays, `conditions` are that the index is in range.
            For maps, `conditions` are that the key is in the map (only for arr1 and arr2 representing map values) *)
-        let e = mk_quant idx_vars (mk_comb (E.mk_and guard' guard) (mk_binary e1' e2')) in
+        let conditions = E.mk_and guard' guard in
+        let e =
+          (* Without conditions the quantified formula says exactly that the
+             two arrays agree at every index, which the theory of arrays states
+             directly as an (dis)equality between the arrays themselves. *)
+          if Flags.Arrays.smt () && E.equal conditions E.t_true then
+            mk_binary e1 e2
+          else
+            mk_quant idx_vars (mk_comb conditions (mk_binary e1' e2'))
+        in
         X.add i e acc
       (* For non-array types, straightforward equality.
          Guard payload fields of ADT records so that junk fields

@@ -2218,8 +2218,39 @@ let constraints_of_arrays init terms eq_bounds =
     match quant_v with
     | [] -> term
     | _ -> Term.mk_forall ~fundef:(Flags.Arrays.recdef ()) quant_v term
-     
+
     in
+
+  (* The leading bounds that [add_bounds] turns into a plain, unguarded
+     universally quantified index variable, in the order in which the
+     corresponding selects are applied outermost first (that is, the order in
+     which [Term.elim_array_index_vars] eliminates them).
+
+     Bounds that are inlined ([Fixed], enumerated index types, and static
+     bounds under [--inline_arrays]) or that restrict the index to a range
+     ([Bound]) are excluded: they either introduce no quantifier at all, or
+     their constraint does not hold of the array as a whole. *)
+  let unguarded_index_vars bounds =
+    let last = List.length bounds - 1 in
+    let rec collect i = function
+      | E.Unbound None :: tl ->
+        index_var_of_int_and_ty i Type.t_int :: collect (pred i) tl
+      | E.Unbound (Some e) :: tl
+        when (match Type.node_of_type (E.type_of_expr e) with
+              | Type.Enum _ -> false | _ -> true) ->
+        index_var_of_int_and_ty i (E.type_of_expr e) :: collect (pred i) tl
+      | _ -> []
+    in
+    collect last bounds
+  in
+
+  (* Drop the [n] leading bounds whose index variables have been eliminated *)
+  let rec drop_bounds n bounds =
+    if n <= 0 then bounds
+    else match bounds with
+      | [] -> []
+      | _ :: tl -> drop_bounds (pred n) tl
+  in
   MBounds.fold (fun bounds eqs (terms, definition_set) ->
       let cstrs_eqs =
         List.map (function
@@ -2261,18 +2292,44 @@ let constraints_of_arrays init terms eq_bounds =
               ) eqs
       in
 
-      let definition_set = Term.TermSet.(of_list cstrs_eqs |> union definition_set) in
+      (* With the theory of arrays, an equation [a[i] = e(i)] can often be
+         stated as an equation between whole arrays, which saves a quantifier.
+         Pair each equation with the number of index variables eliminated this
+         way; equations that keep the same number of variables can still share
+         a quantifier. *)
+      let cstrs_eqs =
+        if Flags.Arrays.smt () then
+          let vars = unguarded_index_vars bounds in
+          let nb_vars = List.length vars in
+          List.map (fun eq ->
+              let vars', eq' = Term.elim_array_index_vars vars eq in
+              nb_vars - List.length vars', eq'
+            ) cstrs_eqs
+        else
+          List.map (fun eq -> 0, eq) cstrs_eqs
+      in
+
+      let definition_set =
+        List.fold_left (fun s (_, eq) -> Term.TermSet.add eq s)
+          definition_set cstrs_eqs
+      in
 
       (* group constraints under same quantifier when not using recursive
          encoding *)
       let cstrs =
         if Flags.Arrays.recdef () then cstrs_eqs
-        else [Term.mk_and cstrs_eqs] in
+        else
+          List.fold_left (fun acc (n, eq) ->
+              let others = try List.assoc n acc with Not_found -> [] in
+              (n, eq :: others) :: List.remove_assoc n acc
+            ) [] cstrs_eqs
+          |> List.map (fun (n, eqs) -> n, Term.mk_and eqs)
+      in
 
-      (* Wrap equations in let binding and/or quantifiers for indexes and add
-         definitions to terms *)
-      (List.fold_left (fun terms cstr ->
-            add_bounds cstr bounds :: terms
+      (* Wrap equations in let binding and/or quantifiers for the indexes that
+         are left and add definitions to terms *)
+      (List.fold_left (fun terms (n, cstr) ->
+            add_bounds cstr (drop_bounds n bounds) :: terms
         ) terms cstrs, definition_set)
 
     ) eq_bounds terms 

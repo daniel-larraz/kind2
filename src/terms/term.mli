@@ -709,6 +709,24 @@ val indexes_of_state_var : StateVar.t -> t -> t list list
     a select, then the given term is returned unaltered *)
 val push_select : t -> t
 
+(** [array_of_index_abstraction v t] returns an array term [a] such that
+    [(select a v)] is equivalent to [t] for every value of the free variable
+    [v], or [None] if no such term can be built with the operators of the
+    SMT-LIB theory of arrays ([store] and [(as const ...)]) *)
+val array_of_index_abstraction : Var.t -> t -> t option
+
+(** [elim_array_index_vars vars t] rewrites the equation [t], of the form
+    [(= (select a v) rhs)] where [v] is the head of [vars], into the
+    equivalent equation [(= a rhs')] where [rhs'] is an array term denoting
+    the function [v |-> rhs]. The rewriting is repeated, following [vars], for
+    as long as it succeeds.
+
+    Returns the variables of [vars] that could not be eliminated together with
+    the rewritten equation. Universally quantifying the result over the
+    returned variables is equivalent to universally quantifying [t] over
+    [vars]. *)
+val elim_array_index_vars : Var.t list -> t -> Var.t list * t
+
 (** {1 Statistics} *)
 
 (** return statistics of hashconsing *)

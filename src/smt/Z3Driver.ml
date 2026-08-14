@@ -95,6 +95,12 @@ let string_of_logic l =
     | `Inferred l when not (Flags.Arrays.smt()) ->
       (* Adding UF is required when slice_nodes=false and array variable is not used in input *)
       `Inferred (if mem A l then add UF (remove A l) else remove A l)
+    | `Inferred l when mem A l && mem UF l && mem IA l && not (mem RA l) ->
+      (* (QF_)AUFLIA: Z3 configures an array solver that is incomplete for the
+         constant arrays the encoding of empty sets and maps relies on, and
+         answers `unknown` to any query made under assumptions. Adding RA moves
+         it off that configuration; announcing a larger logic is always sound. *)
+      `Inferred (add RA l)
     | _ -> l
   in
   TermLib.string_of_logic ~enforce_logic:true l'

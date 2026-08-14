@@ -66,6 +66,12 @@ let cmd_line
         Array.append base_cmd [| timeout |]
   in
 
+  (* Constant arrays, which the encoding of empty sets and maps relies on, are
+     part of cvc5's extended theory of arrays *)
+  let cmd =
+    if Flags.Arrays.smt () then Array.append cmd [| "--arrays-exp" |] else cmd
+  in
+
   (* Tune cvc5 for QF_BV problems (see cvc5 issue #9318) *)
   let open TermLib.FeatureSet in
   let cmd =

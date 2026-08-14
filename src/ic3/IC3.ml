@@ -3270,6 +3270,19 @@ let main_ic3 input_sys aparam trans_sys =
 
 let main input_sys aparam trans_sys =
 
+  (* Generalization eliminates variables with Cooper's method, which knows
+     nothing about the operators of the theory of arrays. With the encoding of
+     arrays as uninterpreted functions the array operators never reach it, but
+     with the builtin theory they do, and it silently generalizes them wrong. *)
+  (let open TermLib in
+   let open TermLib.FeatureSet in
+   match TransSys.get_logic trans_sys with
+   | `Inferred l when mem A l && Flags.Arrays.smt () ->
+     raise (UnsupportedFeature
+       "Shutting down IC3QE: the builtin theory of arrays is not supported.")
+   | _ -> ()
+  );
+
   (match Flags.Smt.solver () with
   | `Yices2_SMTLIB -> (
     (let open TermLib in

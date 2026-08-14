@@ -196,6 +196,10 @@ let rec gen_bound_vars_of_string_sexpr
          (string_of_t HStringSExpr.pp_print_sexpr e))
 
 
+(* The [const] of the constant array constructor [(as const <sort>)] *)
+let s_const = HString.mk_hstring "const"
+
+
 (* Normalize abstract type constant names to our convention *)
 let normalize_abstract_const_name type_name smt_name =
   let s = HString.string_of_hstring smt_name in
@@ -229,8 +233,9 @@ let gen_expr_of_string_sexpr'
        s_signext;
        s_zeroext;
        prime_symbol;
-       const_of_atom; 
+       const_of_atom;
        symbol_of_atom;
+       type_of_sexpr;
        expr_of_string_sexpr } as conv)
     bound_vars =
 
@@ -401,6 +406,15 @@ let gen_expr_of_string_sexpr'
 
       (* Return the constant *)
       Term.mk_uf uf []
+
+    (* Parse ((as const <sort>) v) as the array mapping every index to v *)
+    | HStringSExpr.List
+        [HStringSExpr.List [HStringSExpr.Atom s; HStringSExpr.Atom c; ty]; v]
+      when s == s_as && HString.equal c s_const ->
+
+      Term.mk_const_array
+        (type_of_sexpr ty)
+        (expr_of_string_sexpr conv bound_vars v)
 
     (*  A list with more than one element *)
     | HStringSExpr.List ((HStringSExpr.Atom h) :: tl) -> 

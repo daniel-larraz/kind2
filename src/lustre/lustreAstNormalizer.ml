@@ -175,6 +175,18 @@ let infer_type info node_id expr =
   let ty, _, _ = Chk.infer_type_expr info.context node_id expr |> unwrap in
   ty
 
+(* If [expr] is a set literal, the parser has built it as a chain of insertions
+   into an empty set. Return the inserted elements, in order, or [None] if
+   [expr] is not a set literal. *)
+let rec set_literal_elements = function
+  | A.EmptySet _ -> Some []
+  | A.StructUpdate (_, expr, [A.SetIndex (pos, element)], None) -> (
+    match set_literal_elements expr with
+    | Some elements -> Some (elements @ [(pos, element)])
+    | None -> None
+  )
+  | _ -> None
+
 let pp_print_generated_identifiers ppf gids =
   let locals_list = StringMap.bindings gids.locals in
   let contract_calls_list = StringMap.bindings gids.contract_calls
@@ -2427,8 +2439,29 @@ and normalize_expr ?guard info (node_id : NI.t option) map =
       let nexpr2, gids2, warnings2 = normalize_expr ?guard info node_id map expr2 in
       BinaryOp (pos, op, nexpr1, nexpr2), union gids1 gids2, warnings1 @ warnings2
     )
+  (* The union of a set with a set literal is the insertion of the elements of
+     the literal, one by one (union is commutative, so the literal may be on
+     either side). Stating it that way lets each insertion be compiled to a
+     single array update, whereas a general union relates the two sets at every
+     index and thus needs a universally quantified constraint. *)
+  | BinaryOp (_, Union, expr1, expr2)
+    when set_literal_elements expr1 <> None || set_literal_elements expr2 <> None ->
+    let base, elements = match set_literal_elements expr2 with
+      | Some elements -> expr1, elements
+      | None -> (
+        match set_literal_elements expr1 with
+        | Some elements -> expr2, elements
+        | None -> assert false
+      )
+    in
+    let expr =
+      List.fold_left (fun acc (p, e) ->
+          A.StructUpdate (p, acc, [A.SetIndex (p, e)], None)
+        ) base elements
+    in
+    normalize_expr ?guard info node_id map expr
   | BinaryOp (pos, ((Union | Intersection | Difference) as op), expr1, expr2) ->
-    (* Don't supply the guard when normalizing subexpressions, 
+    (* Don't supply the guard when normalizing subexpressions,
        because we need to generate oracle variables in initial step 
        if there are unguarded pres *)
     let nexpr1, gids1, _ = normalize_expr info node_id map expr1 in 
