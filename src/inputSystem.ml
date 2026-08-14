@@ -496,7 +496,11 @@ let lustre_source_ast (type s) (input_system : s t) =
 let trans_sys_of_analysis (type s)
 ?(preserve_sig = false)
 ?(slice_nodes = Flags.slice_nodes ())
-?(add_functional_constraints = true)
+(* EXPERIMENT (temporary, do not commit): default flipped to false so that the
+   __function_of_inputs symbols and the constraints tying them to the outputs
+   of imported functions are not introduced at all, which keeps UF out of the
+   inferred SMT-LIB logic. *)
+?(add_functional_constraints = false)
 ?slice_to_prop
 : s t -> A.param -> TransSys.t * s t = function
 
