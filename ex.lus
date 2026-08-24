@@ -1,0 +1,17 @@
+datatype Shape = Circle (radius: real) | Rectangle (width: real, height: real);
+
+type Cir = subtype { s: Shape | Circle?(s) };
+
+-- function RadiusPlusOne(s: Cir) returns (r: real);
+-- con
+--   assume Circle?(s);
+-- noc
+-- let
+--   r = s.radius + 1.0;
+-- tel
+
+-- function Top(s: Shape) returns (y: real);
+-- let
+--   y = when Circle?(s) then RadiusPlusOne(s) else 10.0;
+--   check "P" Circle?(s) => y > s.radius;
+-- tel
