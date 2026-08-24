@@ -138,12 +138,20 @@ let setup : unit -> any_input = fun () ->
      stops together and no thread can be the wall clock. *)
   ignore (Thread.create (fun () ->
     let prev = ref (Unix.gettimeofday ()) in
+    let prev_gc = ref (Gc.quick_stat ()) in
     while true do
       Thread.delay 0.1 ;
       let now = Unix.gettimeofday () in
+      let gc = Gc.quick_stat () in
       if now -. !prev > 1.0 then
-        Printf.eprintf "PROBE ticker-gap %.3fs\n%!" (now -. !prev) ;
-      prev := now
+        Printf.eprintf
+          "PROBE ticker-gap %.3fs, minor collections %d, major %d, compactions %d, heap %d words\n%!"
+          (now -. !prev)
+          (gc.Gc.minor_collections - !prev_gc.Gc.minor_collections)
+          (gc.Gc.major_collections - !prev_gc.Gc.major_collections)
+          (gc.Gc.compactions - !prev_gc.Gc.compactions)
+          gc.Gc.heap_words ;
+      prev := now ; prev_gc := gc
     done) ()) ;
 
   (* Raise exception on CTRL+C. *)

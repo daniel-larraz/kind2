@@ -25,7 +25,7 @@ env:
   Z3_VERSION: "4.15.3"
   MATHSAT_VERSION: "5.6.17"
   # Attempts per interpolating solver
-  ROUNDS: "5"
+  ROUNDS: "4"
 
 jobs:
   hunt:
@@ -97,7 +97,7 @@ jobs:
         rounds = int(os.environ.get("ROUNDS", "4"))
         budget = 240
 
-        def attempt(label, extra, n):
+        def attempt(label, extra, n, extra_env=None):
             """Run once, stamping every line with the second it arrived.
 
             Where the time goes is the whole question: Kind 2 honours its
@@ -107,8 +107,10 @@ jobs:
             phase is not looking."""
             cmd = base + extra + [lus]
             t0 = time.time()
+            env = dict(os.environ)
+            env.update(extra_env or {})
             proc = Popen(cmd, stdout=PIPE, stderr=STDOUT, bufsize=1,
-                         universal_newlines=True, errors="replace")
+                         universal_newlines=True, errors="replace", env=env)
             lines = []
             def pump():
                 for line in proc.stdout:
@@ -164,7 +166,11 @@ jobs:
                     print(f"    {at:7.1f}s | {line[:120]}", flush=True)
             return hung
 
-        for label, extra in (("mathsat", []),):
+        # As it is, against the stock OCaml minor heap. The engines
+        # enlarge theirs fourfold, which makes each stop-the-world
+        # collection dearer, and every domain stops for it.
+        for label, env in (("big-heap-8MB", None),
+                           ("stock-heap-2MB", {"KIND2_PROBE_MINOR_HEAP": "262144"})):
             for n in range(1, rounds + 1):
-                attempt(label, extra, n)
+                attempt(label, [], n, env)
         PY

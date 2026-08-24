@@ -100,7 +100,12 @@ let signals_to_block =
    Collecting four times less often is enough to close that gap, and
    costs 8MB per engine. The setting is not inherited from the
    supervisor, so each domain must apply it to itself. *)
-let engine_minor_heap_size = 1 lsl 20
+let engine_minor_heap_size =
+  (* PROBE: overridable so a run can be compared against the default
+     minor heap without a second build. *)
+  match int_of_string_opt (try Sys.getenv "KIND2_PROBE_MINOR_HEAP" with Not_found -> "") with
+  | Some n -> n
+  | None -> 1 lsl 20
 
 (* Give the minor heap of the supervisor the size the engines use.
 
