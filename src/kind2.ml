@@ -130,6 +130,22 @@ let setup : unit -> any_input = fun () ->
     keep Unix.stderr "stderr"
   ) ;
 
+  (* PROBE, and a prototype of the fix it is meant to inform: a thread
+     of its own that does nothing but watch the clock. It takes no lock
+     and touches nothing the supervisor touches, so if it keeps time
+     while the supervisor does not, the supervisor is being starved or
+     is waiting on something; if it stalls too, the whole process
+     stops together and no thread can be the wall clock. *)
+  ignore (Thread.create (fun () ->
+    let prev = ref (Unix.gettimeofday ()) in
+    while true do
+      Thread.delay 0.1 ;
+      let now = Unix.gettimeofday () in
+      if now -. !prev > 1.0 then
+        Printf.eprintf "PROBE ticker-gap %.3fs\n%!" (now -. !prev) ;
+      prev := now
+    done) ()) ;
+
   (* Raise exception on CTRL+C. *)
   Sys.catch_break true ;
 
