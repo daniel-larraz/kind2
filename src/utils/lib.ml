@@ -763,8 +763,39 @@ let ignore_or_kfprintf level =
 (* ********************************************************************** *)
 
 
+(* PROBE: throwaway. How much of a run is spent writing its output?
+   Every log line flushes, and a flushed pipe write costs far more on
+   Windows than on Linux, so the supervisor may simply be I/O bound
+   there. Wrap the output and flush of the standard formatter and keep
+   the totals. Written from several domains, so the totals are
+   indicative rather than exact. *)
+let probe_write_time = ref 0.0
+let probe_write_calls = ref 0
+let probe_flush_time = ref 0.0
+let probe_flush_calls = ref 0
+
+let probe_formatter =
+  Format.make_formatter
+    (fun s pos len ->
+       let t = Unix.gettimeofday () in
+       output_substring Stdlib.stdout s pos len ;
+       probe_write_time := !probe_write_time +. (Unix.gettimeofday () -. t) ;
+       incr probe_write_calls)
+    (fun () ->
+       let t = Unix.gettimeofday () in
+       flush Stdlib.stdout ;
+       probe_flush_time := !probe_flush_time +. (Unix.gettimeofday () -. t) ;
+       incr probe_flush_calls)
+
+let () =
+  at_exit (fun () ->
+    Printf.eprintf
+      "PROBE writes %.4fs in %d calls, flushes %.4fs in %d calls\n%!"
+      !probe_write_time !probe_write_calls
+      !probe_flush_time !probe_flush_calls)
+
 (* Current formatter for output *)
-let log_ppf = ref std_formatter
+let log_ppf = ref probe_formatter
 
 
 (* Set file to write log messages to *)
@@ -781,7 +812,7 @@ let log_to_file f =
 
 
 (* Write messages to standard output *)
-let log_to_stdout () = log_ppf := std_formatter
+let log_to_stdout () = log_ppf := probe_formatter
 
 
 (* ********************************************************************** *)

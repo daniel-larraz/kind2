@@ -1,0 +1,170 @@
+# Throwaway: sample the Windows hang of test-issue-127 many times in one
+# job, now that the harness keeps standard error (#1448), and split the two
+# candidate causes in the same run. Delete once issue #1449 is closed.
+#
+# The hang is intermittent -- roughly every other Windows job since #1445 --
+# so one CI run says little. This runs the single failing test repeatedly,
+# under the interpolating solver `detect` picks (MathSAT, since #1445 put it
+# on the Windows runners) and under the one it picked before (`Z3qe`). What
+# it is after is the first report of the hang that carries standard error:
+#
+#   - no output at all past the analysis header: the supervisor never
+#     reached the timeout check of its polling loop, which on Windows is
+#     the only wall clock there is;
+#   - "Kind 2 did not exit in time, terminating.": the teardown wedged and
+#     the last resort fired, so #1450 is the fix;
+#   - the timeout banner but no exit: the teardown wedged after it.
+name: Hunt the Windows hang (inside the iteration)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ hunt-inside-the-iteration ]
+
+env:
+  Z3_VERSION: "4.15.3"
+  MATHSAT_VERSION: "5.6.17"
+  # Attempts per interpolating solver
+  ROUNDS: "5"
+
+jobs:
+  hunt:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Build Kind 2
+      uses: ./.github/actions/build-kind2
+      with:
+        ocaml-version: 5.5.0
+
+    - name: Cache SMT solvers
+      id: cache-solvers
+      uses: actions/cache@v6
+      with:
+        path: solver-bin
+        key: smt-solvers-windows-x86_64-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
+
+    - name: Download SMT solvers (on cache miss)
+      if: steps.cache-solvers.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p solver-bin
+        Z3_DIR=z3-${Z3_VERSION}-x64-win
+        MS_DIR=mathsat-${MATHSAT_VERSION}-win64
+        curl -sSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_DIR}.zip"
+        unzip -q z3.zip
+        curl -sSL -o mathsat.zip "https://mathsat.fbk.eu/release/${MS_DIR}.zip"
+        unzip -q mathsat.zip
+        cp "$Z3_DIR"/bin/z3.exe "$Z3_DIR"/bin/*.dll solver-bin/
+        cp "$MS_DIR"/bin/mathsat.exe "$MS_DIR"/bin/*.dll solver-bin/
+
+    - name: Install SMT solvers
+      shell: bash
+      run: |
+        set -euo pipefail
+        chmod +x solver-bin/*
+        echo "${GITHUB_WORKSPACE}\\solver-bin" >> $GITHUB_PATH
+
+    - name: Check the solvers run
+      shell: bash
+      run: |
+        set -euo pipefail
+        z3 --version
+        mathsat -version | head -1
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Sample the hang
+      shell: bash
+      run: |
+        # Never fail the job: the report is the point, and a run that hangs
+        # is the result we are here for.
+        set -u
+        python - <<'PY'
+        import os, subprocess, threading, time
+        from subprocess import PIPE, STDOUT, Popen
+
+        kind2 = os.path.join("bin", "kind2.exe")
+        lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
+        timeout_s = 20
+        base = [kind2, "--timeout", str(timeout_s), "--color", "false",
+                "--check_subproperties", "true", "--check_sat_assume", "false",
+                "--slice_nodes", "on", "-v"]
+        rounds = int(os.environ.get("ROUNDS", "4"))
+        budget = 240
+
+        def attempt(label, extra, n):
+            """Run once, stamping every line with the second it arrived.
+
+            Where the time goes is the whole question: Kind 2 honours its
+            own --timeout by exiting 30, but takes twice the budget to do
+            it, and on Windows the wall clock is only looked at inside the
+            polling loop of an analysis. A gap in the stamps says which
+            phase is not looking."""
+            cmd = base + extra + [lus]
+            t0 = time.time()
+            proc = Popen(cmd, stdout=PIPE, stderr=STDOUT, bufsize=1,
+                         universal_newlines=True, errors="replace")
+            lines = []
+            def pump():
+                for line in proc.stdout:
+                    lines.append((time.time() - t0, line.rstrip()))
+            th = threading.Thread(target=pump, daemon=True)
+            th.start()
+            try:
+                proc.wait(timeout=budget)
+                hung = False
+            except subprocess.TimeoutExpired:
+                hung = True
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               capture_output=True)
+                proc.kill()
+            th.join(timeout=30)
+            dt = time.time() - t0
+            print(f"[{label} {n}] {'HUNG' if hung else 'exit ' + str(proc.returncode)}"
+                  f" after {dt:.0f}s, {len(lines)} lines", flush=True)
+            # The silences are what matter: report every gap of 5s or more
+            prev = 0.0
+            gaps = []
+            for at, line in lines:
+                if at - prev >= 3.0:
+                    gaps.append((prev, at, line))
+                prev = at
+            if dt - prev >= 3.0:
+                gaps.append((prev, dt, "<end of run>"))
+            for a, b, line in gaps:
+                print(f"    silent {a:6.1f}s -> {b:6.1f}s ({b-a:5.1f}s), then: {line[:110]}",
+                      flush=True)
+            # When the timeout was noticed, against when the process ended.
+            # The banner is printed once the teardown has finished, so the
+            # distance from it to the exit is the teardown, and the distance
+            # from `timeout_s` to it is everything that was not looking.
+            # The phase probes built into this branch: where the time went.
+            base_at = None
+            for at, line in lines:
+                if line.startswith("PHASE ") or line.startswith("PROBE "):
+                    parts = line.split()
+                    if base_at is None:
+                        base_at = at
+                    print(f"    {at:7.1f}s | {' '.join(parts[1:])}", flush=True)
+            for at, line in lines:
+                if "timeout" in line.lower() and "Wallclock" in line:
+                    print(f"    timeout banner at {at:.1f}s (asked for {timeout_s}s), "
+                          f"exit at {dt:.1f}s", flush=True)
+                    break
+            else:
+                print(f"    no timeout banner; exit at {dt:.1f}s", flush=True)
+            if hung or dt > timeout_s * 2:
+                print(f"    ----- last 25 stamped lines -----", flush=True)
+                for at, line in lines[-25:]:
+                    print(f"    {at:7.1f}s | {line[:120]}", flush=True)
+            return hung
+
+        for label, extra in (("mathsat", []),):
+            for n in range(1, rounds + 1):
+                attempt(label, extra, n)
+        PY

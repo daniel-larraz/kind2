@@ -20,8 +20,10 @@ open Lib
 
 let handle_events input_sys aparam trans_sys = 
 
+  let probe_t0 = Unix.gettimeofday () in
   (* Receive queued events *)
   let events = KEvent.recv () in
+  let probe_t1 = Unix.gettimeofday () in
 
   (* Output events *)
   List.iter 
@@ -33,10 +35,17 @@ let handle_events input_sys aparam trans_sys =
         KEvent.pp_print_event e)
     events;
 
+  let probe_t2 = Unix.gettimeofday () in
   (* Update transition system from events *)
   let _ =
     KEvent.update_trans_sys input_sys aparam trans_sys events
   in
+  let probe_t3 = Unix.gettimeofday () in
+  if probe_t3 -. probe_t0 > 1.0 then
+    Printf.eprintf
+      "PROBE handle_events %.3fs = recv %.3f + debug %.3f + update %.3f, %d events\n%!"
+      (probe_t3 -. probe_t0) (probe_t1 -. probe_t0)
+      (probe_t2 -. probe_t1) (probe_t3 -. probe_t2) (List.length events) ;
 
   ()
 

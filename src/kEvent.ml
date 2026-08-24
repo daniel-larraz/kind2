@@ -2369,7 +2369,9 @@ let update_trans_sys_sub input_sys analysis trans_sys events =
 
       try (
         (* Output disproved property *)
+        let probe_t = Unix.gettimeofday () in
         log_cex true m L_warn input_sys analysis trans_sys p cex ;
+        Printf.eprintf "PROBE log_cex %.3fs\n%!" (Unix.gettimeofday () -. probe_t) ;
 
         (* Change property status in transition system *)
         TransSys.set_prop_false trans_sys p cex;
