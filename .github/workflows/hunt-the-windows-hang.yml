@@ -1,0 +1,136 @@
+# Throwaway: sample the Windows hang of test-issue-127 many times in one
+# job, now that the harness keeps standard error (#1448), and split the two
+# candidate causes in the same run. Delete once issue #1449 is closed.
+#
+# The hang is intermittent -- roughly every other Windows job since #1445 --
+# so one CI run says little. This runs the single failing test repeatedly,
+# under the interpolating solver `detect` picks (MathSAT, since #1445 put it
+# on the Windows runners) and under the one it picked before (`Z3qe`). What
+# it is after is the first report of the hang that carries standard error:
+#
+#   - no output at all past the analysis header: the supervisor never
+#     reached the timeout check of its polling loop, which on Windows is
+#     the only wall clock there is;
+#   - "Kind 2 did not exit in time, terminating.": the teardown wedged and
+#     the last resort fired, so #1450 is the fix;
+#   - the timeout banner but no exit: the teardown wedged after it.
+name: Hunt the Windows hang
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ hunt-the-windows-hang ]
+
+env:
+  Z3_VERSION: "4.15.3"
+  MATHSAT_VERSION: "5.6.17"
+  # Attempts per interpolating solver
+  ROUNDS: "6"
+
+jobs:
+  hunt:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Build Kind 2
+      uses: ./.github/actions/build-kind2
+      with:
+        ocaml-version: 5.5.0
+
+    - name: Cache SMT solvers
+      id: cache-solvers
+      uses: actions/cache@v6
+      with:
+        path: solver-bin
+        key: smt-solvers-windows-x86_64-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
+
+    - name: Download SMT solvers (on cache miss)
+      if: steps.cache-solvers.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p solver-bin
+        Z3_DIR=z3-${Z3_VERSION}-x64-win
+        MS_DIR=mathsat-${MATHSAT_VERSION}-win64
+        curl -sSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_DIR}.zip"
+        unzip -q z3.zip
+        curl -sSL -o mathsat.zip "https://mathsat.fbk.eu/release/${MS_DIR}.zip"
+        unzip -q mathsat.zip
+        cp "$Z3_DIR"/bin/z3.exe "$Z3_DIR"/bin/*.dll solver-bin/
+        cp "$MS_DIR"/bin/mathsat.exe "$MS_DIR"/bin/*.dll solver-bin/
+
+    - name: Install SMT solvers
+      shell: bash
+      run: |
+        set -euo pipefail
+        chmod +x solver-bin/*
+        echo "${GITHUB_WORKSPACE}\\solver-bin" >> $GITHUB_PATH
+
+    - name: Check the solvers run
+      shell: bash
+      run: |
+        set -euo pipefail
+        z3 --version
+        mathsat -version | head -1
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Sample the hang
+      shell: bash
+      run: |
+        # Never fail the job: the report is the point, and a run that hangs
+        # is the result we are here for.
+        set -u
+        python - <<'PY'
+        import os, subprocess, sys, time
+        from subprocess import PIPE, STDOUT, Popen, TimeoutExpired
+
+        kind2 = os.path.join("bin", "kind2.exe")
+        lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
+        base = [kind2, "--timeout", "84", "--color", "false",
+                "--check_subproperties", "true", "--check_sat_assume", "false",
+                "--slice_nodes", "on"]
+        rounds = int(os.environ.get("ROUNDS", "6"))
+        budget = 204  # what the regression harness allows
+
+        def attempt(label, extra, n):
+            cmd = base + extra + [lus]
+            t0 = time.time()
+            proc = Popen(cmd, stdout=PIPE, stderr=STDOUT)
+            try:
+                out = proc.communicate(timeout=budget)[0]
+                dt = time.time() - t0
+                print(f"[{label} {n}] exit {proc.returncode} after {dt:.0f}s", flush=True)
+                return False
+            except TimeoutExpired:
+                alive = proc.poll() is None
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               capture_output=True)
+                proc.kill()
+                try:
+                    out = proc.communicate(timeout=30)[0]
+                except TimeoutExpired:
+                    out = b""
+                text = out.decode("utf-8", errors="replace")
+                print(f"[{label} {n}] HUNG past {budget}s; "
+                      f"kind2 {'still running' if alive else 'already gone'}",
+                      flush=True)
+                print(f"----- merged output of the hung run ({len(text)} chars) -----",
+                      flush=True)
+                print(text[-8000:], flush=True)
+                print("----- end -----", flush=True)
+                return True
+
+        hangs = {}
+        for label, extra in (("mathsat", []), ("z3qe", ["--smt_itp_solver", "Z3qe"])):
+            hangs[label] = 0
+            for n in range(1, rounds + 1):
+                if attempt(label, extra, n):
+                    hangs[label] += 1
+        print("=== hangs by interpolating solver ===", flush=True)
+        for label, count in hangs.items():
+            print(f"  {label}: {count}/{rounds}", flush=True)
+        PY
