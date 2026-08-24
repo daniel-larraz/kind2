@@ -31,6 +31,11 @@ module C2I = C2I
 
 module Signals = TermLib.Signals
 
+(* PHASEPROBE: throwaway, see the workflow of this branch *)
+let phase name =
+  Printf.eprintf "PHASE %s %.3f\n%!" name (Unix.gettimeofday ())
+
+
 open Lib
 open ProcessCall
 
@@ -408,6 +413,8 @@ let slaughter_kids ?(exiting = false) process sys =
 
 (** Called after everything has been cleaned up. *)
 let post_clean_exit process base_status exn =
+  phase "post_clean_exit:begin" ;
+  at_exit (fun () -> phase "exit:done") ;
   (* Exit status of process depends on exception. *)
   let status = status_of_exn process base_status exn in
   (* Last resort: engines abandoned in the background hold no lock the
@@ -453,6 +460,7 @@ let post_clean_exit process base_status exn =
 
 (** Clean up before exit *)
 let on_exit sys process status exn =
+  phase "on_exit:begin" ;
   try
     slaughter_kids ~exiting:true process sys;
     post_clean_exit process status exn
@@ -797,7 +805,9 @@ let analyze msg_setup save_results ignore_props stop_if_falsified slice_to_prop 
       let modules = process_bmc_modules sys modules in
       let modules = process_ic3_modules modules in
 
+      phase "create_processes:begin" ;
       let to_run, pending = create_processes slice_to_prop modules sys in
+      phase "prepare:begin" ;
 
       (* Register the mailboxes of all child processes before spawning
          any of them, so that no engine misses the messages of an
@@ -805,9 +815,11 @@ let analyze msg_setup save_results ignore_props stop_if_falsified slice_to_prop 
       let prepared =
         to_run |> List.map (prepare_process sys msg_setup)
       in
+      phase "spawn:begin" ;
 
       (* Start all child processes. *)
       prepared |> List.iter (spawn_process in_sys param) ;
+      phase "supervisor:begin" ;
 
       (* Running supervisor. *)
       InvarManager.main 

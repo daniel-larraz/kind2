@@ -205,6 +205,15 @@ let wait_for_children run_process pending_processes sys child_pids =
 
     )
 
+(* PHASEPROBE: report only the gaps that matter, so the output stays
+   readable: how long the supervisor went without looking at the clock. *)
+let last_tick = ref 0.0
+let tick () =
+  let now = Unix.gettimeofday () in
+  if !last_tick > 0.0 && now -. !last_tick > 1.0 then
+    Printf.eprintf "PHASE loop:gap %.3f after %.3f\n%!" now (now -. !last_tick) ;
+  last_tick := now
+
 (* Polling loop *)
 let rec loop
   run_process pending_processes
@@ -212,6 +221,7 @@ let rec loop
   child_pids input_sys aparam trans_sys
 =
 
+  tick () ;
   handle_events input_sys aparam trans_sys ;
 
   (* On Windows there is no SIGALRM-based wall clock timeout: enforce
