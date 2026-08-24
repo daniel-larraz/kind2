@@ -214,6 +214,11 @@ let wait_for_children run_process pending_processes sys child_pids =
 
     )
 
+(* PROBE: the parts of one iteration, whenever it goes over a second.
+   [handle_events] already reports itself, and never fired, so the time
+   is in what follows it. *)
+let probe_prev = ref 0.0
+
 (* Polling loop *)
 let rec loop
   run_process pending_processes
@@ -221,7 +226,12 @@ let rec loop
   child_pids input_sys aparam trans_sys
 =
 
+  let probe_a = Unix.gettimeofday () in
+  ( if !probe_prev > 0.0 && probe_a -. !probe_prev > 1.0 then
+      Printf.eprintf "PROBE gap-before-iteration %.3fs\n%!" (probe_a -. !probe_prev) ) ;
+
   handle_events input_sys aparam trans_sys ;
+  let probe_b = Unix.gettimeofday () in
 
   (* On Windows there is no SIGALRM-based wall clock timeout: enforce
      it here. [handle_events] has just refreshed the total time. *)
@@ -285,9 +295,18 @@ let rec loop
     ) else None
 
   in
+  let probe_c = Unix.gettimeofday () in
+  let probe_kids = wait_for_children run_process pending_processes trans_sys child_pids in
+  let probe_d = Unix.gettimeofday () in
+  ( if probe_d -. probe_a > 1.0 then
+      Printf.eprintf
+        "PROBE iteration %.3fs = events %.3f + verdict %.3f + children %.3f\n%!"
+        (probe_d -. probe_a) (probe_b -. probe_a)
+        (probe_c -. probe_b) (probe_d -. probe_c) ) ;
+  probe_prev := probe_d ;
 
   (* Check if child processes have died and exit if necessary *)
-  if wait_for_children run_process pending_processes trans_sys child_pids || (
+  if probe_kids || (
     match done_at with 
     | None -> false
     | Some t -> (Unix.gettimeofday () -. t) > 0.3

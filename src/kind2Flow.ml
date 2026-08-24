@@ -31,6 +31,14 @@ module C2I = C2I
 
 module Signals = TermLib.Signals
 
+let probe_spawn name f =
+  let t = Unix.gettimeofday () in
+  let r = f () in
+  let d = Unix.gettimeofday () -. t in
+  if d > 0.2 then Printf.eprintf "PROBE %s %.3fs\n%!" name d ;
+  r
+
+
 open Lib
 open ProcessCall
 
@@ -618,7 +626,7 @@ let prepare_process sys messaging_setup process =
      transition system, as each engine process worked on its
      copy-on-write image of the supervisor's system when engines were
      forked. *)
-  let sys = TSys.copy sys in
+  let sys = probe_spawn "tsys_copy" (fun () -> TSys.copy sys) in
   {
     prep_process = process ;
     prep_module = kind_module ;
@@ -632,6 +640,7 @@ let spawn_process in_sys param
     { prep_process = process ; prep_module = kind_module ;
       prep_id = id ; prep_worker = messaging_worker ; prep_sys = sys } =
   try
+    probe_spawn "domain_spawn" (fun () ->
     EngineDomains.spawn kind_module id
       ~disconnect:(fun () -> KEvent.unregister_worker messaging_worker)
       (fun () ->
@@ -701,7 +710,7 @@ let spawn_process in_sys param
         ) ;
         (* Cleanup *)
         on_exit_engine messaging_worker kind_module e
-    ) |> ignore ;
+    ) |> ignore) ;
 
     (* Keep identifier of engine and return. *)
     child_pids := (id, kind_module) :: !child_pids
