@@ -25,7 +25,7 @@ env:
   Z3_VERSION: "4.15.3"
   MATHSAT_VERSION: "5.6.17"
   # Attempts per interpolating solver
-  ROUNDS: "4"
+  ROUNDS: "10"
 
 jobs:
   hunt:
@@ -90,7 +90,8 @@ jobs:
 
         kind2 = os.path.join("bin", "kind2.exe")
         lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
-        base = [kind2, "--timeout", "84", "--color", "false",
+        timeout_s = 20
+        base = [kind2, "--timeout", str(timeout_s), "--color", "false",
                 "--check_subproperties", "true", "--check_sat_assume", "false",
                 "--slice_nodes", "on", "-v"]
         rounds = int(os.environ.get("ROUNDS", "4"))
@@ -130,21 +131,32 @@ jobs:
             prev = 0.0
             gaps = []
             for at, line in lines:
-                if at - prev >= 5.0:
+                if at - prev >= 3.0:
                     gaps.append((prev, at, line))
                 prev = at
-            if dt - prev >= 5.0:
+            if dt - prev >= 3.0:
                 gaps.append((prev, dt, "<end of run>"))
             for a, b, line in gaps:
                 print(f"    silent {a:6.1f}s -> {b:6.1f}s ({b-a:5.1f}s), then: {line[:110]}",
                       flush=True)
-            if hung or dt > 120:
+            # When the timeout was noticed, against when the process ended.
+            # The banner is printed once the teardown has finished, so the
+            # distance from it to the exit is the teardown, and the distance
+            # from `timeout_s` to it is everything that was not looking.
+            for at, line in lines:
+                if "timeout" in line.lower() and "Wallclock" in line:
+                    print(f"    timeout banner at {at:.1f}s (asked for {timeout_s}s), "
+                          f"exit at {dt:.1f}s", flush=True)
+                    break
+            else:
+                print(f"    no timeout banner; exit at {dt:.1f}s", flush=True)
+            if hung or dt > timeout_s * 2:
                 print(f"    ----- last 25 stamped lines -----", flush=True)
                 for at, line in lines[-25:]:
                     print(f"    {at:7.1f}s | {line[:120]}", flush=True)
             return hung
 
-        for label, extra in (("mathsat", []), ("z3qe", ["--smt_itp_solver", "Z3qe"])):
+        for label, extra in (("mathsat", []),):
             for n in range(1, rounds + 1):
                 attempt(label, extra, n)
         PY
