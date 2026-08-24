@@ -92,7 +92,7 @@ jobs:
         lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
         base = [kind2, "--timeout", "84", "--color", "false",
                 "--check_subproperties", "true", "--check_sat_assume", "false",
-                "--slice_nodes", "on", "--log_level", "info"]
+                "--slice_nodes", "on", "-v"]
         rounds = int(os.environ.get("ROUNDS", "4"))
         budget = 240
 
