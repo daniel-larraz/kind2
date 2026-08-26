@@ -1,0 +1,141 @@
+# Throwaway: is the stalling of #1449 particular to Windows, or does any
+# small machine do it? The fix limits engines by default on Windows only,
+# and that default is worth only as much as this answer.
+name: Stalls across platforms
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ probe-stalls-across-platforms ]
+
+env:
+  Z3_VERSION: "4.15.3"
+  MATHSAT_VERSION: "5.6.17"
+
+jobs:
+  stalls:
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [ linux-x86_64, macos-arm64, windows-x86_64 ]
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: macos-arm64
+            os: macos-latest
+          - name: windows-x86_64
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Build Kind 2
+      uses: ./.github/actions/build-kind2
+      with:
+        ocaml-version: 5.5.0
+
+    - name: Cache SMT solvers
+      id: cache-solvers
+      uses: actions/cache@v6
+      with:
+        path: solver-bin
+        key: smt-solvers-${{ matrix.name }}-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
+
+    - name: Download SMT solvers (on cache miss)
+      if: steps.cache-solvers.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p solver-bin
+        case "${{ matrix.name }}" in
+          linux-x86_64)   Z3_DIR=z3-${Z3_VERSION}-x64-glibc-2.39   ; MS_DIR=mathsat-${MATHSAT_VERSION}-linux-x86_64  ;;
+          linux-arm64)    Z3_DIR=z3-${Z3_VERSION}-arm64-glibc-2.34 ; MS_DIR=mathsat-${MATHSAT_VERSION}-linux-aarch64 ;;
+          macos-x86_64)   Z3_DIR=z3-${Z3_VERSION}-x64-osx-13.7.6   ; MS_DIR=mathsat-${MATHSAT_VERSION}-macos         ;;
+          macos-arm64)    Z3_DIR=z3-${Z3_VERSION}-arm64-osx-13.7.6 ; MS_DIR=mathsat-${MATHSAT_VERSION}-macos         ;;
+          windows-x86_64) Z3_DIR=z3-${Z3_VERSION}-x64-win          ; MS_DIR=mathsat-${MATHSAT_VERSION}-win64         ;;
+        esac
+        curl -sSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_DIR}.zip"
+        unzip -q z3.zip
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          # The Windows builds load their libraries from beside the
+          # executable, so the DLLs have to travel with it
+          curl -sSL -o mathsat.zip "https://mathsat.fbk.eu/release/${MS_DIR}.zip"
+          unzip -q mathsat.zip
+          cp "$Z3_DIR"/bin/z3.exe "$Z3_DIR"/bin/*.dll solver-bin/
+          cp "$MS_DIR"/bin/mathsat.exe "$MS_DIR"/bin/*.dll solver-bin/
+        else
+          curl -sSL -o mathsat.tar.gz "https://mathsat.fbk.eu/release/${MS_DIR}.tar.gz"
+          tar xzf mathsat.tar.gz
+          cp "$Z3_DIR/bin/z3" solver-bin/
+          cp "$MS_DIR/bin/mathsat" solver-bin/
+        fi
+
+    # The macOS build of MathSAT is universal, so it runs on both macOS
+    # runners, but it loads GMP from the MacPorts path it was linked against
+    # and the runners carry Homebrew. Put the library where it looks for it.
+    - name: Give MathSAT the GMP it links against (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        set -euo pipefail
+        brew install gmp
+        sudo mkdir -p /opt/local/lib
+        sudo ln -sf "$(brew --prefix gmp)/lib/libgmp.10.dylib" /opt/local/lib/libgmp.10.dylib
+
+    - name: Install SMT solvers
+      shell: bash
+      run: |
+        set -euo pipefail
+        chmod +x solver-bin/*
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          # Use the Windows-style workspace path: the PATH entry must be
+          # usable by the native kind2 executable, not only by bash
+          echo "${GITHUB_WORKSPACE}\\solver-bin" >> $GITHUB_PATH
+        else
+          sudo cp solver-bin/z3 solver-bin/mathsat /usr/local/bin/
+        fi
+
+    # A solver Kind 2 cannot start is not distinguishable from one it decided
+    # not to use: the tests would quietly fall back or skip. Check here.
+    - name: Check the solvers run
+      shell: bash
+      run: |
+        set -euo pipefail
+        z3 --version
+        mathsat -version | head -1
+
+    - name: Sample the stalls
+      shell: bash
+      run: |
+        set -u
+        python3 - <<'PY'
+        import os, subprocess, sys, time
+        from subprocess import PIPE, STDOUT, Popen
+
+        exe = "kind2.exe" if os.name == "nt" else "kind2"
+        kind2 = os.path.join("bin", exe)
+        lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
+        # Unlimited on purpose: the question is what an unlimited run does on
+        # each platform, which is what the default was everywhere until now.
+        cmd = [kind2, "--max_engines", "99", "--timeout", "20", "--color", "false",
+               "--check_subproperties", "true", "--check_sat_assume", "false",
+               "--slice_nodes", "on", lus]
+
+        print(f"{sys.platform}: {os.cpu_count()} CPUs", flush=True)
+        for n in range(1, 4):
+            t0 = time.time()
+            proc = Popen(cmd, stdout=PIPE, stderr=STDOUT, universal_newlines=True,
+                         errors="replace")
+            try:
+                out = proc.communicate(timeout=300)[0]
+                hung = False
+            except subprocess.TimeoutExpired:
+                hung = True
+                proc.kill()
+                out = proc.communicate()[0]
+            dt = time.time() - t0
+            line = [l for l in out.splitlines() if "PROBE stalled" in l]
+            print(f"  run {n}: {'HUNG' if hung else 'exit ' + str(proc.returncode)}"
+                  f" after {dt:.0f}s | {line[-1].split('PROBE ',1)[-1] if line else 'no summary'}",
+                  flush=True)
+        PY
