@@ -1,3 +1,7 @@
+# Unreleased
+
+- Support for the [subset and superset](https://kind.cs.uiowa.edu/kind2_user_doc/2_input/10_sets.html) operators `<=`, `<`, `>=`, and `>` on sets.
+
 # Kind 2 v3.0.0
 
 New features:
