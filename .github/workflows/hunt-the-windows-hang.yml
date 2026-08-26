@@ -14,18 +14,18 @@
 #   - "Kind 2 did not exit in time, terminating.": the teardown wedged and
 #     the last resort fired, so #1450 is the fix;
 #   - the timeout banner but no exit: the teardown wedged after it.
-name: Who gets the CPU during a stall
+name: Where the domain threshold is
 
 on:
   workflow_dispatch:
   push:
-    branches: [ probe-who-gets-the-cpu ]
+    branches: [ probe-the-domain-threshold ]
 
 env:
   Z3_VERSION: "4.15.3"
   MATHSAT_VERSION: "5.6.17"
   # Attempts per interpolating solver
-  ROUNDS: "3"
+  ROUNDS: "2"
 
 jobs:
   hunt:
@@ -92,7 +92,7 @@ jobs:
         kind2 = os.path.join("bin", "kind2.exe")
         lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
         # Uncapped on purpose: the stalls are the subject.
-        base = [kind2, "--max_engines", "99", "--timeout", "20", "--color", "false",
+        base = [kind2, "--timeout", "20", "--color", "false",
                 "--check_subproperties", "true", "--check_sat_assume", "false",
                 "--slice_nodes", "on"]
         budget = 240
@@ -100,11 +100,11 @@ jobs:
 
         print(f"runner reports {os.cpu_count()} CPUs", flush=True)
 
-        def attempt(n):
+        def attempt(label, extra, n):
             """Run once, sampling who accrues CPU, and line the samples up
             against the stalls the run reports itself."""
             t0 = time.time()
-            proc = Popen(base + [lus], stdout=PIPE, stderr=STDOUT, bufsize=1,
+            proc = Popen(base + extra + [lus], stdout=PIPE, stderr=STDOUT, bufsize=1,
                          universal_newlines=True, errors="replace")
             lines, samples = [], []
 
@@ -162,7 +162,7 @@ jobs:
                 proc.kill()
             time.sleep(1.0)
             dt = time.time() - t0
-            print(f"\n[run {n}] {'HUNG' if hung else 'exit ' + str(proc.returncode)} after {dt:.0f}s",
+            print(f"\n[{label} {n}] {'HUNG' if hung else 'exit ' + str(proc.returncode)} after {dt:.0f}s",
                   flush=True)
             for at, line in lines:
                 if "stalled" in line:
@@ -192,6 +192,10 @@ jobs:
                       f"Kind 2 {k2:.2f}s CPU ({k2 / gap:.1f} cores) across {thr} threads, "
                       f"its {kids} solvers {slv:.2f}s ({slv / gap:.1f} cores)", flush=True)
 
-        for n in range(1, rounds + 1):
-            attempt(n)
+        # If the stalls are domains spinning at a barrier none of them can
+        # complete, they should begin exactly when the domains outnumber the
+        # cores -- clean at and below the core count, stalling above it.
+        for cap in (3, 4, 5, 6, 99):
+            for n in range(1, rounds + 1):
+                attempt(f"cap-{cap}", ["--max_engines", str(cap)], n)
         PY
