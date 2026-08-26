@@ -248,15 +248,9 @@ let stalled_iteration =
   | Some _ -> infinity
   | None -> 2.0
 
-(* How many in a row before giving an engine up. One can be a hiccup. *)
-let stalls_before_shedding = 2
-
 let last_iteration = ref 0.0
-let consecutive_stalls = ref 0
 
-let reset_shedding () =
-  last_iteration := 0.0 ;
-  consecutive_stalls := 0
+let reset_shedding () = last_iteration := 0.0
 
 (* Give up the least valuable engine still running, if there is one that
    is not the last. Returns whether one was given up. *)
@@ -283,13 +277,11 @@ let shed_one_engine child_pids =
    engine when several in a row say the supervisor is not running. *)
 let watch_progress child_pids =
   let now = Unix.gettimeofday () in
-  ( if !last_iteration > 0.0 then (
-      if now -. !last_iteration > stalled_iteration then (
-        incr consecutive_stalls ;
-        if !consecutive_stalls >= stalls_before_shedding then
-          if shed_one_engine child_pids then consecutive_stalls := 0
-      ) else consecutive_stalls := 0
-    ) ) ;
+  (* On each stall, not on consecutive ones: a run has a handful of them
+     with ordinary iterations in between, so waiting for two in a row
+     waits for something that does not happen. *)
+  ( if !last_iteration > 0.0 && now -. !last_iteration > stalled_iteration then
+      ignore (shed_one_engine child_pids) ) ;
   last_iteration := Unix.gettimeofday ()
 
 (* Polling loop *)
