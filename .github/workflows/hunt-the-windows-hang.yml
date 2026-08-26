@@ -14,12 +14,12 @@
 #   - "Kind 2 did not exit in time, terminating.": the teardown wedged and
 #     the last resort fired, so #1450 is the fix;
 #   - the timeout banner but no exit: the teardown wedged after it.
-name: Whether fewer rendezvous is enough
+name: How much of it is IC3IA
 
 on:
   workflow_dispatch:
   push:
-    branches: [ probe-the-barrier-frequency ]
+    branches: [ probe-the-ic3ia-pressure ]
 
 env:
   Z3_VERSION: "4.15.3"
@@ -100,13 +100,11 @@ jobs:
 
         print(f"runner reports {os.cpu_count()} CPUs", flush=True)
 
-        def attempt(label, extra_env, n):
+        def attempt(label, extra, n):
             """Run once, sampling who accrues CPU, and line the samples up
             against the stalls the run reports itself."""
             t0 = time.time()
-            env = dict(os.environ) ; env.update(extra_env or {})
-            proc = Popen(base + [lus], stdout=PIPE, stderr=STDOUT, bufsize=1,
-                         env=env,
+            proc = Popen(base + extra + [lus], stdout=PIPE, stderr=STDOUT, bufsize=1,
                          universal_newlines=True, errors="replace")
             lines, samples = [], []
 
@@ -197,14 +195,14 @@ jobs:
         # If the stalls are domains spinning at a barrier none of them can
         # complete, they should begin exactly when the domains outnumber the
         # cores -- clean at and below the core count, stalling above it.
-        # Every engine keeps running in all of these. Only how often the
-        # domains have to meet changes: a bigger minor heap fills less
-        # often, so there are fewer stop-the-world points to livelock at.
-        # The engines' own size today is 1 lsl 20 words, which is 8MB.
-        for label, words in (("stock-2MB", 262144),
-                             ("current-8MB", 1 << 20),
-                             ("32MB", 1 << 22),
-                             ("64MB", 1 << 23)):
+        # Windows was healthy until MathSAT made IC3IA do real work, so
+        # how much of the stalling belongs to those domains? Every engine
+        # runs in all four arms; only how hard IC3IA works changes.
+        for label, extra in (
+                ("mathsat-2-instances", []),
+                ("mathsat-1-instance",  ["--ic3ia_max", "1"]),
+                ("no-ic3ia",            ["--ic3ia_max", "0"]),
+                ("z3qe",                ["--smt_itp_solver", "Z3qe"])):
             for n in range(1, rounds + 1):
-                attempt(label, {"KIND2_PROBE_MINOR_HEAP": str(words)}, n)
+                attempt(label, extra, n)
         PY
