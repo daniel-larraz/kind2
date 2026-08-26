@@ -25,7 +25,7 @@ env:
   Z3_VERSION: "4.15.3"
   MATHSAT_VERSION: "5.6.17"
   # Attempts per interpolating solver
-  ROUNDS: "3"
+  ROUNDS: "5"
 
 jobs:
   hunt:
@@ -100,7 +100,7 @@ jobs:
 
         print(f"runner reports {os.cpu_count()} CPUs", flush=True)
 
-        def attempt(label, extra_env, n):
+        def attempt(label, extra_env, n, due=None):
             """Run once, sampling who accrues CPU, and line the samples up
             against the stalls the run reports itself."""
             t0 = time.time()
@@ -179,7 +179,11 @@ jobs:
                 hits = [(at, line) for at, line in lines if wanted in line]
                 if hits:
                     at, line = hits[0]
-                    print(f"    said at {at:.1f}s: {line.strip()}", flush=True)
+                    # How late the thread was, which is the whole question
+                    # about its priority: the backstop is due at a known
+                    # second and cannot speak before it has been scheduled.
+                    late = f", {at - due:+.1f}s off its due {due}s" if due else ""
+                    print(f"    said at {at:.1f}s{late}: {line.strip()}", flush=True)
                 else:
                     print(f"    never said: {wanted!r}", flush=True)
 
@@ -207,19 +211,20 @@ jobs:
                       f"Kind 2 {k2:.2f}s CPU ({k2 / gap:.1f} cores) across {thr} threads, "
                       f"its {kids} solvers {slv:.2f}s ({slv / gap:.1f} cores)", flush=True)
 
-        # If the stalls are domains spinning at a barrier none of them can
-        # complete, they should begin exactly when the domains outnumber the
-        # cores -- clean at and below the core count, stalling above it.
-        # Windows was healthy until MathSAT made IC3IA do real work, so
-        # how much of the stalling belongs to those domains? Every engine
-        # runs in all four arms; only how hard IC3IA works changes.
-        # --timeout 20, so the backstop falls due at 50s now, not 80s.
-        # Also counts the solvers left behind, which is what the job
-        # object is for.
-        for label, env in (("no-native-timeout", {"KIND2_PROBE_NO_NATIVE_TIMEOUT": "1"}),
-                           ("native-timeout",    None)):
+        # Does the raise on the sleeping thread buy anything? It is the
+        # thread that has to wake and then reach the terminate, and the
+        # slack between when the backstop is due and when it speaks is
+        # what the raise is supposed to close. Both arms run with a grace
+        # of five rather than the thirty that ships, so that the backstop
+        # fires on every run instead of on the occasional one that stalls
+        # -- at --timeout 20 it is due at 25s, and nothing here finishes
+        # that fast.
+        DUE = 25
+        for label, env in (("raised",   {"KIND2_PROBE_GRACE": "5"}),
+                           ("ordinary", {"KIND2_PROBE_GRACE": "5",
+                                         "KIND2_PROBE_NO_PRIORITY": "1"})):
             for n in range(1, rounds + 1):
-                attempt(label, env, n)
+                attempt(label, env, n, due=DUE)
                 left = subprocess.run(["tasklist", "/FI", "IMAGENAME eq z3.exe"],
                                       capture_output=True, text=True).stdout
                 print(f"    solvers left behind: {left.count('z3.exe')}", flush=True)

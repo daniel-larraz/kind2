@@ -44,6 +44,7 @@
 
 #include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static DWORD kind2_timeout_ms = 0;
 static UINT kind2_timeout_status = 0;
@@ -177,7 +178,11 @@ CAMLprim value kind2_arm_native_timeout(value seconds, value status)
      it costs nothing meanwhile -- it is asleep for the whole run. */
   thread = CreateThread(NULL, 0, kind2_timeout_thread, NULL, 0, NULL);
   if (thread != NULL) {
-    SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST);
+    /* PROBE: the raise is what the observed slack is blamed on, so the
+       arm that leaves it off is what shows the blame is correct. Never
+       merged. */
+    if (getenv("KIND2_PROBE_NO_PRIORITY") == NULL)
+      SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST);
     CloseHandle(thread);
   }
   CAMLreturn(Val_unit);

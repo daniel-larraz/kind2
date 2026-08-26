@@ -186,8 +186,18 @@ let setup : unit -> any_input = fun () ->
         let ceiling = 1_000_000. in
         if Float.is_nan timeout || timeout > ceiling then ()
         else
+          (* PROBE: the grace is thirty in what ships. A run that beats
+             it never meets the backstop, which is the point and also
+             makes it rare to observe -- so this arm shrinks it, to make
+             the backstop fire on every run and let its slack be
+             measured. Never merged. *)
+          let grace =
+            match Sys.getenv_opt "KIND2_PROBE_GRACE" with
+            | Some g -> ( try int_of_string g with _ -> 60 )
+            | None -> 60
+          in
           NativeTimeout.arm
-            (int_of_float timeout + 60) ExitCodes.incomplete_analysis
+            (int_of_float timeout + grace) ExitCodes.incomplete_analysis
       | _ -> () ) ;
 
   (* Install generic signal handlers for other signals. *)
