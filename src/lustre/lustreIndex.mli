@@ -66,7 +66,11 @@ type one_index =
   | ArrayVarIndex of LustreExpr.expr
     (** Variable as index of an array of given size *)
 
-  | SetMapIndex of LustreExpr.expr 
+  | SetMapIndex of LustreExpr.expr * one_index list
+    (** One dimension of the array a set or map is compiled into.  The
+        expression is a fresh variable of the dimension's index type; the index
+        is the path, within the compiled trie of the element (resp. key) type,
+        of the component this dimension indexes. *)
 
   | AbstractTypeIndex of string
     (** Index to the representation field of an abstract type *)

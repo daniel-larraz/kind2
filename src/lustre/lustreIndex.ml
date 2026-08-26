@@ -52,7 +52,11 @@ type one_index =
   (* Array field indexed by variable *)
   | ArrayVarIndex of E.expr
 
-  | SetMapIndex of E.expr 
+  (* One dimension of the array a set or map is compiled into. The expression
+     is a fresh variable of the dimension's index type; the index is the path,
+     within the compiled trie of the element (resp. key) type, of the component
+     this dimension indexes. *)
+  | SetMapIndex of E.expr * one_index list
 
   (* Index to the representation field of an abstract type *)
   | AbstractTypeIndex of string

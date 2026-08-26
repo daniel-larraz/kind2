@@ -234,7 +234,7 @@ let mk_state_var_name ident index = Format.asprintf "%a%a"
 let bounds_of_index index =
   List.fold_left (fun acc -> function
       | X.ArrayVarIndex b -> E.Bound b :: acc
-      | X.SetMapIndex b -> E.Unbound (Some b) :: acc
+      | X.SetMapIndex (b, _) -> E.Unbound (Some b) :: acc
       | X.ArrayIntIndex i ->
         E.Fixed (E.mk_int_expr (Numeral.of_int (i + 1))) :: acc
       | _ -> acc
@@ -428,7 +428,7 @@ let rec expand_tuple' pos accum bounds lhs rhs =
     expand_tuple' pos accum (E.Bound b :: bounds)
       ((lhs_index_tl, state_var) :: lhs_tl)
       (([], expr) :: rhs_tl)
-  | (X.SetMapIndex b :: lhs_index_tl, state_var) :: lhs_tl,
+  | (X.SetMapIndex (b, _) :: lhs_index_tl, state_var) :: lhs_tl,
     ([], expr) :: rhs_tl ->
     expand_tuple' pos accum (E.Unbound (Some b) :: bounds)
       ((lhs_index_tl, state_var) :: lhs_tl)
@@ -501,7 +501,7 @@ let rec expand_tuple' pos accum bounds lhs rhs =
       let ty = 
         let idx = List.nth (List.rev (X.ArrayVarIndex b :: rhs_index_tl)) j in 
         match idx with 
-        | X.SetMapIndex b
+        | X.SetMapIndex (b, _)
         | X.ArrayVarIndex b -> 
           E.type_of_expr b 
         | X.ArrayIntIndex _ -> Type.t_int
@@ -516,15 +516,15 @@ let rec expand_tuple' pos accum bounds lhs rhs =
       ((rhs_index_tl, expr) :: rhs_tl)
   (* Map index on right and left side *)
   | (X.SetMapIndex _ :: lhs_index_tl, state_var) :: lhs_tl,
-    (X.SetMapIndex b :: rhs_index_tl, expr) :: rhs_tl -> 
+    (X.SetMapIndex (b, p) :: rhs_index_tl, expr) :: rhs_tl -> 
     let expr_type = expr.E.expr_type in
     let array_index_types = Type.all_index_types_of_array expr_type in
     let over_index_types (e, i, j) _ =
       let ty = 
-        let idx = List.nth (List.rev (X.SetMapIndex b :: rhs_index_tl)) j in 
+        let idx = List.nth (List.rev (X.SetMapIndex (b, p) :: rhs_index_tl)) j in 
         match idx with 
         | X.ArrayVarIndex b
-        | X.SetMapIndex b -> 
+        | X.SetMapIndex (b, _) -> 
           E.type_of_expr b 
         | X.ArrayIntIndex _ -> Type.t_int
         | _ -> assert false 
@@ -1019,30 +1019,36 @@ and compile_ast_type
     List.fold_left over_types (0, X.empty) types |> snd
   | A.Set (_, ty1) -> 
     let index_type = compile_ast_type cstate ctx map ty1 in
-    let types = List.rev (X.values index_type) in
-    let last_type = List.hd types in
+    (* Each binding of the element type becomes one dimension of the array the
+       set is compiled into, and the dimension remembers which component of the
+       element type it indexes (see [X.SetMapIndex]) *)
+    let dims = List.rev (X.bindings index_type) in
+    let last_dim = List.hd dims in
     let ty2' = A.Bool Lib.dummy_pos in
     let element_type = compile_ast_type cstate ctx map ty2' in
-    let over_element_type ty j t a = 
+    let over_element_type (path, ty) j t a = 
       let dummy = (E.mk_free_var (Var.mk_fresh_var ty)).E.expr_init in
       X.add
-      (j @ [X.SetMapIndex dummy])
+      (j @ [X.SetMapIndex (dummy, path)])
       (Type.mk_array t ty)
       a
     in
     let base_map_type =
-      X.fold (over_element_type last_type) element_type X.empty
+      X.fold (over_element_type last_dim) element_type X.empty
     in
     List.fold_left
-      (fun acc ty ->
-         X.fold (over_element_type ty) acc X.empty
+      (fun acc dim ->
+         X.fold (over_element_type dim) acc X.empty
       )
       base_map_type
-      (List.tl types)
+      (List.tl dims)
   | A.Map (_, ty1, ty2) -> 
     let index_type = compile_ast_type cstate ctx map ty1 in
-    let types = List.rev (X.values index_type) in
-    let last_type = List.hd types in
+    (* Each binding of the key type becomes one dimension of the array the map
+       is compiled into, and the dimension remembers which component of the key
+       type it indexes (see [X.SetMapIndex]) *)
+    let dims = List.rev (X.bindings index_type) in
+    let last_dim = List.hd dims in
     (* Build the presence/value trie directly using tagged TupleIndex entries
        instead of TupleType [Bool; ty2], so map and plain-tuple entries are
        distinguishable in compiled tries without source-type information.
@@ -1054,22 +1060,22 @@ and compile_ast_type
       X.fold (fun j t a -> X.add (X.TupleIndex (0, Some X.MapDomain) :: j) t a) domain_type
         (X.fold (fun j t a -> X.add (X.TupleIndex (1, Some X.MapValue) :: j) t a) value_type X.empty)
     in
-    let over_element_type ty j t a =
+    let over_element_type (path, ty) j t a =
       let dummy = (E.mk_free_var (Var.mk_fresh_var ty)).E.expr_init in
       X.add
-      (j @ [X.SetMapIndex dummy])
+      (j @ [X.SetMapIndex (dummy, path)])
       (Type.mk_array t ty)
       a
     in
     let base_map_type =
-      X.fold (over_element_type last_type) element_type X.empty
+      X.fold (over_element_type last_dim) element_type X.empty
     in
     List.fold_left
-      (fun acc ty ->
-         X.fold (over_element_type ty) acc X.empty
+      (fun acc dim ->
+         X.fold (over_element_type dim) acc X.empty
       )
       base_map_type
-      (List.tl types)
+      (List.tl dims)
   | A.ArrayType (_, (type_expr, size_expr)) ->
     (* TODO: Should we check that array size is constant here or later?
       If the var_size flag is set, variable sized arrays are allowed
@@ -1333,6 +1339,41 @@ and compile_ast_expr
         let e2' = List.fold_left (fun acc arr_i -> 
           E.mk_select_and_push acc arr_i
         ) e2 arr_is in
+        (* Only the indices a value of the element (resp. key) type can reach
+           carry meaning. A set or map over an ADT is an array with one
+           dimension per payload field of *every* constructor, and membership
+           reads it at a canonicalized index: the payload fields of the
+           constructors the tag does not select are replaced by their default
+           value (see [adt_canonicalize_key]). The remaining indices are junk
+           that no element can observe, and comparing two containers there
+           would tell apart values that hold exactly the same elements.
+           Each dimension knows which component of the element type it indexes,
+           so the same canonicalization membership performs says which index
+           tuples are reachable: those that canonicalization leaves alone. *)
+        let canonical_index_cond =
+          let dim_paths =
+            List.rev (List.filter_map (function
+              | X.SetMapIndex (_, path) -> Some (Some path)
+              | X.ArrayVarIndex _ | X.ArrayIntIndex _ -> Some None
+              | _ -> None) i)
+          in
+          assert (List.length dim_paths = List.length idx_tys);
+          let bindings =
+            List.filter_map (fun (path, arr_i) ->
+              match path with Some path -> Some (path, arr_i) | None -> None)
+              (List.combine dim_paths arr_is)
+          in
+          let canonical =
+            adt_canonicalize_key cstate.adt_map cstate.abstract_type_defaults
+              bindings
+          in
+          (* A dimension canonicalization leaves alone is reachable as it is;
+             one it rewrites is reachable only where the rewriting is the
+             identity, that is where the tag selects the field's constructor *)
+          List.fold_left2 (fun acc (_, arr_i) c ->
+            if c == arr_i then acc else E.mk_and acc (E.mk_eq c arr_i)
+          ) E.t_true bindings canonical
+        in
         (* A dimension whose index type is an enumerated datatype (the
            discriminant dimension of a set/map over an ADT, or a set/map over
            an enum) is only *defined* at the values of that enum: the equations
@@ -1393,6 +1434,7 @@ and compile_ast_expr
            For disequality: exists (x: K) conditions and arr1[x] <> arr2[x]. 
            For arrays, `conditions` are that the index is in range. 
            For maps, `conditions` are that the key is in the map (only for arr1 and arr2 representing map values) *)
+        let guard = E.mk_and canonical_index_cond guard in
         let e = mk_quant idx_vars (mk_comb (E.mk_and guard' guard) (mk_binary e1' e2')) in
         X.add i e acc
       (* For non-array types, straightforward equality.
@@ -1557,7 +1599,7 @@ and compile_ast_expr
                index variables. *)
             let dim_type = function
               | X.ArrayIntIndex _ -> Type.t_int
-              | X.ArrayVarIndex b | X.SetMapIndex b -> E.type_of_expr b
+              | X.ArrayVarIndex b | X.SetMapIndex (b, _) -> E.type_of_expr b
               | _ -> assert false
             in
             let pos_var = E.mk_array_index_var 0 (dim_type cur_dim) in
@@ -2860,7 +2902,7 @@ and compile_node_decl scc_map gids_map rec_decreases_map is_function is_rec is_l
     let kt = X.fold (fun k _ acc -> 
         List.fold_left (fun (acc, acc_is, acc_i, num_is) idx -> 
       match idx with 
-      | X.SetMapIndex b -> 
+      | X.SetMapIndex (b, _) -> 
         if is_set && num_is > 0 then 
           X.add acc_is (E.type_of_expr b) acc, acc_is, acc_i + 1, num_is - 1 
         else if num_is > 0 then  
@@ -2929,7 +2971,7 @@ and compile_node_decl scc_map gids_map rec_decreases_map is_function is_rec is_l
         | X.ArrayVarIndex b -> if cpt < indexes
           then E.Bound b :: acc, succ cpt
           else acc, cpt
-        | X.SetMapIndex b -> if cpt < indexes 
+        | X.SetMapIndex (b, _) -> if cpt < indexes 
           then E.Unbound (Some b) :: acc, succ cpt
           else acc, cpt
         | X.ArrayIntIndex x -> 

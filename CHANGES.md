@@ -20,6 +20,7 @@ New features:
 Improvements:
 - Fixed multiple issues across different functionalities, including:
   - Handling of arrays and quantified formulas.
+  - Structural equality of sets and maps over algebraic datatypes.
   - Monomorphization of polymorphic calls.
   - Assumption checks for calls to inlined functions in contracts.
   - Division by zero errors.
