@@ -14,12 +14,12 @@
 #   - "Kind 2 did not exit in time, terminating.": the teardown wedged and
 #     the last resort fired, so #1450 is the fix;
 #   - the timeout banner but no exit: the teardown wedged after it.
-name: Hunt the Windows hang (oversubscription, controlled)
+name: Verify the engine cap
 
 on:
   workflow_dispatch:
   push:
-    branches: [ hunt-oversubscription-controlled ]
+    branches: [ verify-the-engine-cap ]
 
 env:
   Z3_VERSION: "4.15.3"
@@ -149,9 +149,11 @@ jobs:
         # never runs long enough to stall and says nothing about the rate.
         # These three all run to the timeout instead, so only the number of
         # domains and solvers differs.
-        arms = (("all-engines", []),
-                ("ic3ia-only", ["--enable", "IC3IA"]),
-                ("invgen-only", ["--enable", "INVGEN"]))
+        # What CI does today against what the cap does on this machine.
+        # Same engines are enabled in both; the cap only bounds how many
+        # run at once, so a difference is the cap's doing.
+        arms = (("uncapped", ["--max_engines", "99"]),
+                ("auto-cap", []))
         for label, extra in arms:
             for n in range(1, rounds + 1):
                 attempt(label, extra, n)
