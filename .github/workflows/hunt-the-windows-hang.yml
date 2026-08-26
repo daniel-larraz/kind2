@@ -14,12 +14,12 @@
 #   - "Kind 2 did not exit in time, terminating.": the teardown wedged and
 #     the last resort fired, so #1450 is the fix;
 #   - the timeout banner but no exit: the teardown wedged after it.
-name: Verify the engine cap
+name: Who gets the CPU during a stall
 
 on:
   workflow_dispatch:
   push:
-    branches: [ verify-the-engine-cap ]
+    branches: [ probe-who-gets-the-cpu ]
 
 env:
   Z3_VERSION: "4.15.3"
@@ -84,98 +84,96 @@ jobs:
         # Never fail the job: the report is the point, and a run that hangs
         # is the result we are here for.
         set -u
-        python - <<'PY'
-        import csv, os, subprocess, threading, time
-        from subprocess import PIPE, STDOUT, DEVNULL, Popen
+        uv run --with psutil python - <<'PY'
+        import os, subprocess, threading, time
+        import psutil
+        from subprocess import PIPE, STDOUT, Popen
 
         kind2 = os.path.join("bin", "kind2.exe")
         lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
-        timeout_s = 20
-        budget = 240
-        rounds = int(os.environ.get("ROUNDS", "3"))
-        base = [kind2, "--timeout", str(timeout_s), "--color", "false",
+        # Uncapped on purpose: the stalls are the subject.
+        base = [kind2, "--max_engines", "99", "--timeout", "20", "--color", "false",
                 "--check_subproperties", "true", "--check_sat_assume", "false",
                 "--slice_nodes", "on"]
+        budget = 240
+        rounds = int(os.environ.get("ROUNDS", "2"))
 
         print(f"runner reports {os.cpu_count()} CPUs", flush=True)
 
-        # System-wide counters for the whole job, one sampler rather than one
-        # per query, so the measurement does not add the load it measures.
-        counters = ["\\System\\Processor Queue Length",
-                    "\\Processor(_Total)\\% Processor Time",
-                    "\\Memory\\Available MBytes",
-                    "\\Memory\\Pages/sec",
-                    "\\System\\Processes"]
-        perf = None
-        try:
-            perf = Popen(["typeperf", *counters, "-si", "1", "-o", "counters.csv", "-y"],
-                         stdout=DEVNULL, stderr=DEVNULL)
-        except OSError as e:
-            print(f"typeperf unavailable: {e}", flush=True)
-
-        def attempt(label, extra, n):
-            cmd = base + extra + [lus]
+        def attempt(n):
+            """Run once, sampling who accrues CPU, and line the samples up
+            against the stalls the run reports itself."""
             t0 = time.time()
-            proc = Popen(cmd, stdout=PIPE, stderr=STDOUT, bufsize=1,
+            proc = Popen(base + [lus], stdout=PIPE, stderr=STDOUT, bufsize=1,
                          universal_newlines=True, errors="replace")
-            lines = []
+            lines, samples = [], []
+
             def pump():
                 for line in proc.stdout:
                     lines.append((time.time() - t0, line.rstrip()))
-            th = threading.Thread(target=pump, daemon=True)
-            th.start()
+            threading.Thread(target=pump, daemon=True).start()
+
+            def sample():
+                """CPU seconds accrued by Kind 2 itself and by its solvers,
+                per interval. Tracked per pid so that a solver exiting does
+                not read as negative work."""
+                me = psutil.Process(proc.pid)
+                prev_self, prev_kids = 0.0, {}
+                while proc.poll() is None:
+                    time.sleep(0.5)
+                    at = time.time() - t0
+                    try:
+                        c = me.cpu_times()
+                        cur_self = c.user + c.system
+                    except psutil.Error:
+                        break
+                    kids, cur_kids = 0.0, {}
+                    for k in me.children(recursive=True):
+                        try:
+                            kc = k.cpu_times()
+                            tot = kc.user + kc.system
+                            cur_kids[k.pid] = tot
+                            kids += max(0.0, tot - prev_kids.get(k.pid, tot))
+                        except psutil.Error:
+                            pass
+                    samples.append((at, max(0.0, cur_self - prev_self), kids, len(cur_kids)))
+                    prev_self, prev_kids = cur_self, cur_kids
+            threading.Thread(target=sample, daemon=True).start()
+
             try:
-                proc.wait(timeout=budget)
-                hung = False
+                proc.wait(timeout=budget); hung = False
             except subprocess.TimeoutExpired:
                 hung = True
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                                capture_output=True)
                 proc.kill()
-            th.join(timeout=30)
+            time.sleep(1.0)
             dt = time.time() - t0
-            summary = [l for _, l in lines if l.startswith("PROBE stalled")]
-            print(f"[{label} {n}] {'HUNG' if hung else 'exit ' + str(proc.returncode)}"
-                  f" after {dt:.0f}s  |  {summary[-1] if summary else 'no stall summary'}",
+            print(f"\n[run {n}] {'HUNG' if hung else 'exit ' + str(proc.returncode)} after {dt:.0f}s",
                   flush=True)
             for at, line in lines:
-                if "ticker-gap" in line or "engines at once" in line or "Not run:" in line:
-                    print(f"    {at:7.1f}s | {line.split('PROBE ',1)[-1]}", flush=True)
+                if "stalled" in line:
+                    print(f"    {line.split('PROBE ',1)[-1]}", flush=True)
 
-        # The whole engine set, as CI runs it, against a pair of engines.
-        # If the stalls are oversubscription, the share of a run spent
-        # stalled should fall with the number of domains and solvers.
-        # BMC alone falsifies this test in a second, so an arm holding it
-        # never runs long enough to stall and says nothing about the rate.
-        # These three all run to the timeout instead, so only the number of
-        # domains and solvers differs.
-        # What CI does today against what the cap does on this machine.
-        # Same engines are enabled in both; the cap only bounds how many
-        # run at once, so a difference is the cap's doing.
-        arms = (("uncapped", ["--max_engines", "99"]),
-                ("auto-cap", []))
-        for label, extra in arms:
-            for n in range(1, rounds + 1):
-                attempt(label, extra, n)
+            # Every stall the run reported, and who was running during it.
+            for at, line in lines:
+                if "ticker-gap" not in line:
+                    continue
+                try:
+                    gap = float(line.split("gap ",1)[1].split("s",1)[0])
+                except (IndexError, ValueError):
+                    continue
+                lo, hi = at - gap, at
+                inside = [s for s in samples if lo <= s[0] <= hi]
+                if not inside:
+                    continue
+                k2 = sum(s[1] for s in inside)
+                slv = sum(s[2] for s in inside)
+                kids = max(s[3] for s in inside)
+                print(f"    stall of {gap:.1f}s ending at {at:.1f}s: "
+                      f"Kind 2 accrued {k2:.2f}s CPU, its {kids} solvers accrued {slv:.2f}s "
+                      f"({slv / gap:.1f} cores' worth)", flush=True)
 
-        if perf is not None:
-            perf.terminate()
-            try: perf.wait(timeout=15)
-            except subprocess.TimeoutExpired: perf.kill()
-            print("=== system counters over the whole job ===", flush=True)
-            try:
-                with open("counters.csv", newline="", errors="replace") as f:
-                    rows = list(csv.reader(f))
-                head, data = rows[0][1:], rows[1:]
-                cols = [[] for _ in head]
-                for r in data:
-                    for i, v in enumerate(r[1:]):
-                        try: cols[i].append(float(v))
-                        except (ValueError, IndexError): pass
-                for name, vals in zip(head, cols):
-                    if vals:
-                        print(f"  {name}: max {max(vals):.1f}  mean {sum(vals)/len(vals):.1f}"
-                              f"  min {min(vals):.1f}  ({len(vals)} samples)", flush=True)
-            except OSError as e:
-                print(f"  could not read counters.csv: {e}", flush=True)
+        for n in range(1, rounds + 1):
+            attempt(n)
         PY
