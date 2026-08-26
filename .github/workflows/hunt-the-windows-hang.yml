@@ -92,7 +92,7 @@ jobs:
         kind2 = os.path.join("bin", "kind2.exe")
         lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
         # Uncapped on purpose: the stalls are the subject.
-        base = [kind2, "--max_engines", "99", "--timeout", "20", "--color", "false",
+        base = [kind2, "--timeout", "20", "--color", "false",
                 "--check_subproperties", "true", "--check_sat_assume", "false",
                 "--slice_nodes", "on"]
         budget = 240
