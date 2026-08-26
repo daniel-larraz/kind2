@@ -118,7 +118,13 @@ jobs:
                 per interval. Tracked per pid so that a solver exiting does
                 not read as negative work."""
                 me = psutil.Process(proc.pid)
-                prev_self, prev_kids = 0.0, {}
+                # From what it has used by now, not from zero: otherwise the
+                # first interval reads as everything since the process began.
+                try:
+                    c0 = me.cpu_times() ; prev_self = c0.user + c0.system
+                except psutil.Error:
+                    prev_self = 0.0
+                prev_kids = {}
                 while proc.poll() is None:
                     time.sleep(0.5)
                     at = time.time() - t0
@@ -133,10 +139,17 @@ jobs:
                             kc = k.cpu_times()
                             tot = kc.user + kc.system
                             cur_kids[k.pid] = tot
-                            kids += max(0.0, tot - prev_kids.get(k.pid, tot))
+                            # A solver seen for the first time did all of its
+                            # work inside this interval, so count all of it.
+                            kids += max(0.0, tot - prev_kids.get(k.pid, 0.0))
                         except psutil.Error:
                             pass
-                    samples.append((at, max(0.0, cur_self - prev_self), kids, len(cur_kids)))
+                    try:
+                        nthreads = me.num_threads()
+                    except psutil.Error:
+                        nthreads = 0
+                    samples.append((at, max(0.0, cur_self - prev_self), kids,
+                                    len(cur_kids), nthreads))
                     prev_self, prev_kids = cur_self, cur_kids
             threading.Thread(target=sample, daemon=True).start()
 
@@ -156,9 +169,13 @@ jobs:
                     print(f"    {line.split('PROBE ',1)[-1]}", flush=True)
 
             # Every stall the run reported, and who was running during it.
+            seen = set()
             for at, line in lines:
-                if "ticker-gap" not in line:
+                if "thread-ticker-gap" not in line:   # one ticker is enough
                     continue
+                if round(at, 1) in seen:
+                    continue
+                seen.add(round(at, 1))
                 try:
                     gap = float(line.split("gap ",1)[1].split("s",1)[0])
                 except (IndexError, ValueError):
@@ -170,9 +187,10 @@ jobs:
                 k2 = sum(s[1] for s in inside)
                 slv = sum(s[2] for s in inside)
                 kids = max(s[3] for s in inside)
+                thr = max(s[4] for s in inside)
                 print(f"    stall of {gap:.1f}s ending at {at:.1f}s: "
-                      f"Kind 2 accrued {k2:.2f}s CPU, its {kids} solvers accrued {slv:.2f}s "
-                      f"({slv / gap:.1f} cores' worth)", flush=True)
+                      f"Kind 2 {k2:.2f}s CPU ({k2 / gap:.1f} cores) across {thr} threads, "
+                      f"its {kids} solvers {slv:.2f}s ({slv / gap:.1f} cores)", flush=True)
 
         for n in range(1, rounds + 1):
             attempt(n)
