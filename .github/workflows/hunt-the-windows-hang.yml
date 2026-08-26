@@ -139,7 +139,7 @@ jobs:
                   f" after {dt:.0f}s  |  {summary[-1] if summary else 'no stall summary'}",
                   flush=True)
             for at, line in lines:
-                if "ticker-gap" in line:
+                if "ticker-gap" in line or "engines at once" in line or "Not run:" in line:
                     print(f"    {at:7.1f}s | {line.split('PROBE ',1)[-1]}", flush=True)
 
         # The whole engine set, as CI runs it, against a pair of engines.
