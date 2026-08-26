@@ -172,7 +172,7 @@ let setup : unit -> any_input = fun () ->
      that had disproved a property would report an incomplete analysis
      instead. The grace is the width of that window, and it is worth
      being generous with. *)
-  ( if Sys.win32 then
+  ( if Sys.win32 && Sys.getenv_opt "KIND2_PROBE_NO_NATIVE_TIMEOUT" = None then
       match Flags.timeout_wall () with
       | timeout when timeout > 0. ->
         (* A count of seconds the other side can hold. It reaches a
