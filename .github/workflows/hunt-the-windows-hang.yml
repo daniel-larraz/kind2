@@ -14,18 +14,18 @@
 #   - "Kind 2 did not exit in time, terminating.": the teardown wedged and
 #     the last resort fired, so #1450 is the fix;
 #   - the timeout banner but no exit: the teardown wedged after it.
-name: Hunt the Windows hang (inside the iteration)
+name: Hunt the Windows hang (oversubscription)
 
 on:
   workflow_dispatch:
   push:
-    branches: [ hunt-inside-the-iteration ]
+    branches: [ hunt-oversubscription ]
 
 env:
   Z3_VERSION: "4.15.3"
   MATHSAT_VERSION: "5.6.17"
   # Attempts per interpolating solver
-  ROUNDS: "4"
+  ROUNDS: "3"
 
 jobs:
   hunt:
@@ -85,32 +85,39 @@ jobs:
         # is the result we are here for.
         set -u
         python - <<'PY'
-        import os, subprocess, threading, time
-        from subprocess import PIPE, STDOUT, Popen
+        import csv, os, subprocess, threading, time
+        from subprocess import PIPE, STDOUT, DEVNULL, Popen
 
         kind2 = os.path.join("bin", "kind2.exe")
         lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
         timeout_s = 20
+        budget = 240
+        rounds = int(os.environ.get("ROUNDS", "3"))
         base = [kind2, "--timeout", str(timeout_s), "--color", "false",
                 "--check_subproperties", "true", "--check_sat_assume", "false",
-                "--slice_nodes", "on", "-v"]
-        rounds = int(os.environ.get("ROUNDS", "4"))
-        budget = 240
+                "--slice_nodes", "on"]
 
-        def attempt(label, extra, n, extra_env=None):
-            """Run once, stamping every line with the second it arrived.
+        print(f"runner reports {os.cpu_count()} CPUs", flush=True)
 
-            Where the time goes is the whole question: Kind 2 honours its
-            own --timeout by exiting 30, but takes twice the budget to do
-            it, and on Windows the wall clock is only looked at inside the
-            polling loop of an analysis. A gap in the stamps says which
-            phase is not looking."""
+        # System-wide counters for the whole job, one sampler rather than one
+        # per query, so the measurement does not add the load it measures.
+        counters = ["\\System\\Processor Queue Length",
+                    "\\Processor(_Total)\\% Processor Time",
+                    "\\Memory\\Available MBytes",
+                    "\\Memory\\Pages/sec",
+                    "\\System\\Processes"]
+        perf = None
+        try:
+            perf = Popen(["typeperf", *counters, "-si", "1", "-o", "counters.csv", "-y"],
+                         stdout=DEVNULL, stderr=DEVNULL)
+        except OSError as e:
+            print(f"typeperf unavailable: {e}", flush=True)
+
+        def attempt(label, extra, n):
             cmd = base + extra + [lus]
             t0 = time.time()
-            env = dict(os.environ)
-            env.update(extra_env or {})
             proc = Popen(cmd, stdout=PIPE, stderr=STDOUT, bufsize=1,
-                         universal_newlines=True, errors="replace", env=env)
+                         universal_newlines=True, errors="replace")
             lines = []
             def pump():
                 for line in proc.stdout:
@@ -127,50 +134,41 @@ jobs:
                 proc.kill()
             th.join(timeout=30)
             dt = time.time() - t0
+            summary = [l for _, l in lines if l.startswith("PROBE stalled")]
             print(f"[{label} {n}] {'HUNG' if hung else 'exit ' + str(proc.returncode)}"
-                  f" after {dt:.0f}s, {len(lines)} lines", flush=True)
-            # The silences are what matter: report every gap of 5s or more
-            prev = 0.0
-            gaps = []
+                  f" after {dt:.0f}s  |  {summary[-1] if summary else 'no stall summary'}",
+                  flush=True)
             for at, line in lines:
-                if at - prev >= 3.0:
-                    gaps.append((prev, at, line))
-                prev = at
-            if dt - prev >= 3.0:
-                gaps.append((prev, dt, "<end of run>"))
-            for a, b, line in gaps:
-                print(f"    silent {a:6.1f}s -> {b:6.1f}s ({b-a:5.1f}s), then: {line[:110]}",
-                      flush=True)
-            # When the timeout was noticed, against when the process ended.
-            # The banner is printed once the teardown has finished, so the
-            # distance from it to the exit is the teardown, and the distance
-            # from `timeout_s` to it is everything that was not looking.
-            # The phase probes built into this branch: where the time went.
-            base_at = None
-            for at, line in lines:
-                if line.startswith("PHASE ") or line.startswith("PROBE "):
-                    parts = line.split()
-                    if base_at is None:
-                        base_at = at
-                    print(f"    {at:7.1f}s | {' '.join(parts[1:])}", flush=True)
-            for at, line in lines:
-                if "timeout" in line.lower() and "Wallclock" in line:
-                    print(f"    timeout banner at {at:.1f}s (asked for {timeout_s}s), "
-                          f"exit at {dt:.1f}s", flush=True)
-                    break
-            else:
-                print(f"    no timeout banner; exit at {dt:.1f}s", flush=True)
-            if hung or dt > timeout_s * 2:
-                print(f"    ----- last 25 stamped lines -----", flush=True)
-                for at, line in lines[-25:]:
-                    print(f"    {at:7.1f}s | {line[:120]}", flush=True)
-            return hung
+                if "ticker-gap" in line:
+                    print(f"    {at:7.1f}s | {line.split('PROBE ',1)[-1]}", flush=True)
 
-        # As it is, against the stock OCaml minor heap. The engines
-        # enlarge theirs fourfold, which makes each stop-the-world
-        # collection dearer, and every domain stops for it.
-        for label, env in (("big-heap-8MB", None),
-                           ("stock-heap-2MB", {"KIND2_PROBE_MINOR_HEAP": "262144"})):
+        # The whole engine set, as CI runs it, against a pair of engines.
+        # If the stalls are oversubscription, the share of a run spent
+        # stalled should fall with the number of domains and solvers.
+        arms = (("all-engines", []),
+                ("two-engines", ["--enable", "BMC", "--enable", "IND"]))
+        for label, extra in arms:
             for n in range(1, rounds + 1):
-                attempt(label, [], n, env)
+                attempt(label, extra, n)
+
+        if perf is not None:
+            perf.terminate()
+            try: perf.wait(timeout=15)
+            except subprocess.TimeoutExpired: perf.kill()
+            print("=== system counters over the whole job ===", flush=True)
+            try:
+                with open("counters.csv", newline="", errors="replace") as f:
+                    rows = list(csv.reader(f))
+                head, data = rows[0][1:], rows[1:]
+                cols = [[] for _ in head]
+                for r in data:
+                    for i, v in enumerate(r[1:]):
+                        try: cols[i].append(float(v))
+                        except (ValueError, IndexError): pass
+                for name, vals in zip(head, cols):
+                    if vals:
+                        print(f"  {name}: max {max(vals):.1f}  mean {sum(vals)/len(vals):.1f}"
+                              f"  min {min(vals):.1f}  ({len(vals)} samples)", flush=True)
+            except OSError as e:
+                print(f"  could not read counters.csv: {e}", flush=True)
         PY

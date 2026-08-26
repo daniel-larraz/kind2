@@ -130,12 +130,23 @@ let setup : unit -> any_input = fun () ->
     keep Unix.stderr "stderr"
   ) ;
 
-  (* PROBE, and a prototype of the fix it is meant to inform: a thread
-     of its own that does nothing but watch the clock. It takes no lock
-     and touches nothing the supervisor touches, so if it keeps time
-     while the supervisor does not, the supervisor is being starved or
-     is waiting on something; if it stalls too, the whole process
-     stops together and no thread can be the wall clock. *)
+  (* How much of this run was stall, which is the number the
+     concurrency arms are compared on. *)
+  let probe_stalled = ref 0.0 and probe_stalls = ref 0 in
+  let probe_started = Unix.gettimeofday () in
+  at_exit (fun () ->
+    let wall = Unix.gettimeofday () -. probe_started in
+    Printf.eprintf
+      "PROBE stalled %.1fs of %.1fs wall (%.0f%%) in %d stalls over 1s\n%!"
+      !probe_stalled wall
+      (if wall > 0.0 then 100.0 *. !probe_stalled /. wall else 0.0)
+      !probe_stalls) ;
+
+  (* PROBE. Two clocks that share nothing with the supervisor: a thread
+     of the main domain, and a domain of its own. Both stall together on
+     these runners (#1449), so the stop is not local to one domain. What
+     is measured here is how much of a run is stall, which is the number
+     the concurrency arms are compared on. *)
   ignore (Thread.create (fun () ->
     let prev = ref (Unix.gettimeofday ()) in
     let prev_gc = ref (Gc.quick_stat ()) in
@@ -143,16 +154,28 @@ let setup : unit -> any_input = fun () ->
       Thread.delay 0.1 ;
       let now = Unix.gettimeofday () in
       let gc = Gc.quick_stat () in
-      if now -. !prev > 1.0 then
+      let gap = now -. !prev in
+      if gap > 1.0 then (
+        probe_stalled := !probe_stalled +. gap ;
+        incr probe_stalls ;
         Printf.eprintf
-          "PROBE ticker-gap %.3fs, minor collections %d, major %d, compactions %d, heap %d words\n%!"
-          (now -. !prev)
+          "PROBE thread-ticker-gap %.3fs, minor collections %d, major %d, heap %d words\n%!"
+          gap
           (gc.Gc.minor_collections - !prev_gc.Gc.minor_collections)
           (gc.Gc.major_collections - !prev_gc.Gc.major_collections)
-          (gc.Gc.compactions - !prev_gc.Gc.compactions)
-          gc.Gc.heap_words ;
+          gc.Gc.heap_words ) ;
       prev := now ; prev_gc := gc
     done) ()) ;
+  ignore (Domain.spawn (fun () ->
+    let prev = ref (Unix.gettimeofday ()) in
+    while true do
+      Thread.delay 0.1 ;
+      let now = Unix.gettimeofday () in
+      let gap = now -. !prev in
+      if gap > 1.0 then
+        Printf.eprintf "PROBE domain-ticker-gap %.3fs\n%!" gap ;
+      prev := now
+    done)) ;
 
   (* Raise exception on CTRL+C. *)
   Sys.catch_break true ;
