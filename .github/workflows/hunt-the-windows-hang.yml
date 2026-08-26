@@ -14,12 +14,12 @@
 #   - "Kind 2 did not exit in time, terminating.": the teardown wedged and
 #     the last resort fired, so #1450 is the fix;
 #   - the timeout banner but no exit: the teardown wedged after it.
-name: Hunt the Windows hang (oversubscription)
+name: Hunt the Windows hang (oversubscription, controlled)
 
 on:
   workflow_dispatch:
   push:
-    branches: [ hunt-oversubscription ]
+    branches: [ hunt-oversubscription-controlled ]
 
 env:
   Z3_VERSION: "4.15.3"
@@ -145,8 +145,13 @@ jobs:
         # The whole engine set, as CI runs it, against a pair of engines.
         # If the stalls are oversubscription, the share of a run spent
         # stalled should fall with the number of domains and solvers.
+        # BMC alone falsifies this test in a second, so an arm holding it
+        # never runs long enough to stall and says nothing about the rate.
+        # These three all run to the timeout instead, so only the number of
+        # domains and solvers differs.
         arms = (("all-engines", []),
-                ("two-engines", ["--enable", "BMC", "--enable", "IND"]))
+                ("ic3ia-only", ["--enable", "IC3IA"]),
+                ("invgen-only", ["--enable", "INVGEN"]))
         for label, extra in arms:
             for n in range(1, rounds + 1):
                 attempt(label, extra, n)
