@@ -170,6 +170,19 @@ jobs:
                 if "stalled" in line:
                     print(f"    {line.split('PROBE ',1)[-1]}", flush=True)
 
+            # Did the run say why it was ending? Both last resorts write one
+            # line and then kill the process, and until now this harness
+            # captured those lines without ever printing them -- so their
+            # absence from the log said nothing about whether they were
+            # written. Report them explicitly.
+            for wanted in ("ran past its timeout", "did not exit in time"):
+                hits = [(at, line) for at, line in lines if wanted in line]
+                if hits:
+                    at, line = hits[0]
+                    print(f"    said at {at:.1f}s: {line.strip()}", flush=True)
+                else:
+                    print(f"    never said: {wanted!r}", flush=True)
+
             # Every stall the run reported, and who was running during it.
             seen = set()
             for at, line in lines:
