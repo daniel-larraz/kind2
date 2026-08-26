@@ -1,0 +1,209 @@
+# Throwaway: sample the Windows hang of test-issue-127 many times in one
+# job, now that the harness keeps standard error (#1448), and split the two
+# candidate causes in the same run. Delete once issue #1449 is closed.
+#
+# The hang is intermittent -- roughly every other Windows job since #1445 --
+# so one CI run says little. This runs the single failing test repeatedly,
+# under the interpolating solver `detect` picks (MathSAT, since #1445 put it
+# on the Windows runners) and under the one it picked before (`Z3qe`). What
+# it is after is the first report of the hang that carries standard error:
+#
+#   - no output at all past the analysis header: the supervisor never
+#     reached the timeout check of its polling loop, which on Windows is
+#     the only wall clock there is;
+#   - "Kind 2 did not exit in time, terminating.": the teardown wedged and
+#     the last resort fired, so #1450 is the fix;
+#   - the timeout banner but no exit: the teardown wedged after it.
+name: Verify shedding on stalls
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ verify-shedding ]
+
+env:
+  Z3_VERSION: "4.15.3"
+  MATHSAT_VERSION: "5.6.17"
+  # Attempts per interpolating solver
+  ROUNDS: "3"
+
+jobs:
+  hunt:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Build Kind 2
+      uses: ./.github/actions/build-kind2
+      with:
+        ocaml-version: 5.5.0
+
+    - name: Cache SMT solvers
+      id: cache-solvers
+      uses: actions/cache@v6
+      with:
+        path: solver-bin
+        key: smt-solvers-windows-x86_64-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
+
+    - name: Download SMT solvers (on cache miss)
+      if: steps.cache-solvers.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p solver-bin
+        Z3_DIR=z3-${Z3_VERSION}-x64-win
+        MS_DIR=mathsat-${MATHSAT_VERSION}-win64
+        curl -sSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_DIR}.zip"
+        unzip -q z3.zip
+        curl -sSL -o mathsat.zip "https://mathsat.fbk.eu/release/${MS_DIR}.zip"
+        unzip -q mathsat.zip
+        cp "$Z3_DIR"/bin/z3.exe "$Z3_DIR"/bin/*.dll solver-bin/
+        cp "$MS_DIR"/bin/mathsat.exe "$MS_DIR"/bin/*.dll solver-bin/
+
+    - name: Install SMT solvers
+      shell: bash
+      run: |
+        set -euo pipefail
+        chmod +x solver-bin/*
+        echo "${GITHUB_WORKSPACE}\\solver-bin" >> $GITHUB_PATH
+
+    - name: Check the solvers run
+      shell: bash
+      run: |
+        set -euo pipefail
+        z3 --version
+        mathsat -version | head -1
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Sample the hang
+      shell: bash
+      run: |
+        # Never fail the job: the report is the point, and a run that hangs
+        # is the result we are here for.
+        set -u
+        uv run --with psutil python - <<'PY'
+        import os, subprocess, threading, time
+        import psutil
+        from subprocess import PIPE, STDOUT, Popen
+
+        kind2 = os.path.join("bin", "kind2.exe")
+        lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
+        # Uncapped on purpose: the stalls are the subject.
+        base = [kind2, "--max_engines", "99", "--timeout", "20", "--color", "false",
+                "--check_subproperties", "true", "--check_sat_assume", "false",
+                "--slice_nodes", "on"]
+        budget = 240
+        rounds = int(os.environ.get("ROUNDS", "2"))
+
+        print(f"runner reports {os.cpu_count()} CPUs", flush=True)
+
+        def attempt(label, extra_env, n):
+            """Run once, sampling who accrues CPU, and line the samples up
+            against the stalls the run reports itself."""
+            t0 = time.time()
+            env = dict(os.environ) ; env.update(extra_env or {})
+            proc = Popen(base + [lus], stdout=PIPE, stderr=STDOUT, bufsize=1,
+                         env=env,
+                         universal_newlines=True, errors="replace")
+            lines, samples = [], []
+
+            def pump():
+                for line in proc.stdout:
+                    lines.append((time.time() - t0, line.rstrip()))
+            threading.Thread(target=pump, daemon=True).start()
+
+            def sample():
+                """CPU seconds accrued by Kind 2 itself and by its solvers,
+                per interval. Tracked per pid so that a solver exiting does
+                not read as negative work."""
+                me = psutil.Process(proc.pid)
+                # From what it has used by now, not from zero: otherwise the
+                # first interval reads as everything since the process began.
+                try:
+                    c0 = me.cpu_times() ; prev_self = c0.user + c0.system
+                except psutil.Error:
+                    prev_self = 0.0
+                prev_kids = {}
+                while proc.poll() is None:
+                    time.sleep(0.5)
+                    at = time.time() - t0
+                    try:
+                        c = me.cpu_times()
+                        cur_self = c.user + c.system
+                    except psutil.Error:
+                        break
+                    kids, cur_kids = 0.0, {}
+                    for k in me.children(recursive=True):
+                        try:
+                            kc = k.cpu_times()
+                            tot = kc.user + kc.system
+                            cur_kids[k.pid] = tot
+                            # A solver seen for the first time did all of its
+                            # work inside this interval, so count all of it.
+                            kids += max(0.0, tot - prev_kids.get(k.pid, 0.0))
+                        except psutil.Error:
+                            pass
+                    try:
+                        nthreads = me.num_threads()
+                    except psutil.Error:
+                        nthreads = 0
+                    samples.append((at, max(0.0, cur_self - prev_self), kids,
+                                    len(cur_kids), nthreads))
+                    prev_self, prev_kids = cur_self, cur_kids
+            threading.Thread(target=sample, daemon=True).start()
+
+            try:
+                proc.wait(timeout=budget); hung = False
+            except subprocess.TimeoutExpired:
+                hung = True
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               capture_output=True)
+                proc.kill()
+            time.sleep(1.0)
+            dt = time.time() - t0
+            print(f"\n[{label} {n}] {'HUNG' if hung else 'exit ' + str(proc.returncode)} after {dt:.0f}s",
+                  flush=True)
+            for at, line in lines:
+                if "stalled" in line:
+                    print(f"    {line.split('PROBE ',1)[-1]}", flush=True)
+
+            # Every stall the run reported, and who was running during it.
+            seen = set()
+            for at, line in lines:
+                if "thread-ticker-gap" not in line:   # one ticker is enough
+                    continue
+                if round(at, 1) in seen:
+                    continue
+                seen.add(round(at, 1))
+                try:
+                    gap = float(line.split("gap ",1)[1].split("s",1)[0])
+                except (IndexError, ValueError):
+                    continue
+                lo, hi = at - gap, at
+                inside = [s for s in samples if lo <= s[0] <= hi]
+                if not inside:
+                    continue
+                k2 = sum(s[1] for s in inside)
+                slv = sum(s[2] for s in inside)
+                kids = max(s[3] for s in inside)
+                thr = max(s[4] for s in inside)
+                print(f"    stall of {gap:.1f}s ending at {at:.1f}s: "
+                      f"Kind 2 {k2:.2f}s CPU ({k2 / gap:.1f} cores) across {thr} threads, "
+                      f"its {kids} solvers {slv:.2f}s ({slv / gap:.1f} cores)", flush=True)
+
+        # If the stalls are domains spinning at a barrier none of them can
+        # complete, they should begin exactly when the domains outnumber the
+        # cores -- clean at and below the core count, stalling above it.
+        # Windows was healthy until MathSAT made IC3IA do real work, so
+        # how much of the stalling belongs to those domains? Every engine
+        # runs in all four arms; only how hard IC3IA works changes.
+        # Every engine starts in both arms. One gives an engine up when
+        # the supervisor stops being scheduled; the other never does.
+        for label, env in (("shedding-off", {"KIND2_PROBE_NO_SHEDDING": "1"}),
+                           ("shedding-on",  None)):
+            for n in range(1, rounds + 1):
+                attempt(label, env, n)
+        PY
