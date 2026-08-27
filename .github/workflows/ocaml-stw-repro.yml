@@ -14,6 +14,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
+        # Is it a regression, and where? One compiler answers nothing a
+        # maintainer would ask first.
+        ocaml: ["5.2.1", "5.3.0", "5.4.0", "5.5.0"]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v6
@@ -21,7 +24,7 @@ jobs:
     - name: Set up OCaml
       uses: ocaml/setup-ocaml@v3
       with:
-        ocaml-compiler: 5.5.0
+        ocaml-compiler: ${{ matrix.ocaml }}
 
     - name: Build the reproducer
       shell: bash
@@ -59,10 +62,10 @@ jobs:
         }
 
         for mode in busy yield alloc ; do
-          for w in 0 1 2 4 ; do
+          for w in 0 1 ; do
             echo "== $mode workers=$w (expect ~8s) =="
-            bounded 60 opam exec -- ./yield_repro.exe $mode $w 8 \
-              || echo "   NO RESULT: killed after 60s or exit $?"
+            bounded 20 opam exec -- ./yield_repro.exe $mode $w 8 \
+              || echo "   NO RESULT: killed after 20s or exit $?"
           done
         done
 
@@ -78,18 +81,18 @@ jobs:
       shell: pwsh
       run: |
         Set-Location ocaml-stw-repro
-        foreach ($arm in @(@('busy',1), @('alloc',1), @('yield',1), @('busy',0))) {
+        foreach ($arm in @(@('busy',1), @('yield',1))) {
           $mode = $arm[0] ; $w = $arm[1]
           Write-Host "== $mode workers=$w (expect ~8s) =="
           $clock = [Diagnostics.Stopwatch]::StartNew()
           $p = Start-Process -FilePath .\yield_repro.exe -ArgumentList $mode,$w,8 `
                  -PassThru -NoNewWindow
-          if ($p.WaitForExit(60000)) {
+          if ($p.WaitForExit(20000)) {
             $clock.Stop()
             Write-Host ("   exit {0} after {1:N1}s" -f $p.ExitCode, $clock.Elapsed.TotalSeconds)
           } else {
             $clock.Stop()
             $p.Kill()
-            Write-Host "   NO RESULT: still running at 60s"
+            Write-Host "   NO RESULT: still running at 20s"
           }
         }
