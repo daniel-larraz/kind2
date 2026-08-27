@@ -39,7 +39,7 @@ jobs:
       run: |
         set -u
         cd ocaml-stw-repro
-        for mode in alloc compute threads ; do
+        for mode in alloc compute threads io ; do
           for d in 1 2 4 8 12 16 ; do
             opam exec -- ./stw_repro.exe $mode $d 10
           done
