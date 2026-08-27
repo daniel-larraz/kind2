@@ -1,0 +1,45 @@
+# Throwaway: does OCaml stop running when busy domains outnumber the
+# cores, on Windows and not elsewhere? Nothing of Kind 2 is involved --
+# one file, no libraries, no subprocesses. Delete once #1449 is closed.
+name: Reproduce the OCaml stall
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ ocaml-stw-repro ]
+
+jobs:
+  stall:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up OCaml
+      uses: ocaml/setup-ocaml@v3
+      with:
+        ocaml-compiler: 5.5.0
+
+    - name: Build the reproducer
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd ocaml-stw-repro
+        ocamlopt -I +unix -I +threads unix.cmxa threads.cmxa \
+          stw_repro.ml -o stw_repro
+        ocamlopt -version
+
+    - name: Sweep
+      shell: bash
+      run: |
+        set -u
+        cd ocaml-stw-repro
+        echo "runner reports $(ocaml -e 'print_int (Domain.recommended_domain_count ())' 2>/dev/null || echo '?') usable domains"
+        for mode in alloc compute ; do
+          for d in 1 2 4 8 12 16 ; do
+            ./stw_repro $mode $d 10
+          done
+        done
