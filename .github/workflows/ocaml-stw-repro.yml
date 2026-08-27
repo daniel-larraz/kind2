@@ -44,9 +44,14 @@ jobs:
       run: |
         set -u
         cd ocaml-stw-repro
+        # Bounded, so that a thread which never gets its turn cannot
+        # hang the job, and announced before each run, so that the arm
+        # it happens on is named rather than inferred.
         for mode in busy yield alloc ; do
-          for w in 1 2 4 ; do
-            opam exec -- ./yield_repro.exe $mode $w 15
+          for w in 0 1 2 4 ; do
+            echo "== $mode workers=$w (expect ~8s) =="
+            timeout 60 opam exec -- ./yield_repro.exe $mode $w 8 \
+              || echo "   NO RESULT: exit $? (124 means it never finished)"
           done
         done
 

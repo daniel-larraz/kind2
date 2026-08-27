@@ -73,10 +73,14 @@ let () =
     | "alloc" -> alloc_work
     | m -> failwith ("unknown mode " ^ m)
   in
+  (* Said before anything is spawned, so that a run which prints
+     nothing at all is known to have started. *)
+  Printf.printf "  start %s workers=%d\n%!" mode workers ;
   let started = Unix.gettimeofday () in
 
   (* Every thread here, the measuring one included, belongs to the one
-     domain the program starts with. *)
+     domain the program starts with. A run with no workers is the
+     control for Thread.delay itself. *)
   let threads = List.init workers (fun _ -> Thread.create work ()) in
 
   let worst = ref 0.0 and stalled = ref 0.0 and count = ref 0 in
