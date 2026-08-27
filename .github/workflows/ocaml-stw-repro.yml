@@ -28,18 +28,19 @@ jobs:
       run: |
         set -euo pipefail
         cd ocaml-stw-repro
-        ocamlopt -I +unix -I +threads unix.cmxa threads.cmxa \
+        # setup-ocaml puts the compiler in an opam switch, and nothing
+        # is on PATH without asking opam for its environment.
+        opam exec -- ocamlopt -version
+        opam exec -- ocamlopt -I +unix -I +threads unix.cmxa threads.cmxa \
           stw_repro.ml -o stw_repro
-        ocamlopt -version
 
     - name: Sweep
       shell: bash
       run: |
         set -u
         cd ocaml-stw-repro
-        echo "runner reports $(ocaml -e 'print_int (Domain.recommended_domain_count ())' 2>/dev/null || echo '?') usable domains"
         for mode in alloc compute ; do
           for d in 1 2 4 8 12 16 ; do
-            ./stw_repro $mode $d 10
+            opam exec -- ./stw_repro $mode $d 10
           done
         done
