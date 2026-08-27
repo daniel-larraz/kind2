@@ -47,11 +47,24 @@ jobs:
         # Bounded, so that a thread which never gets its turn cannot
         # hang the job, and announced before each run, so that the arm
         # it happens on is named rather than inferred.
+        #
+        # Not `timeout`: it is absent on macOS, where it reported exit
+        # 127 for all twelve arms and produced no data at all.
+        bounded() {
+          local secs=$1 ; shift
+          "$@" & local pid=$!
+          ( sleep "$secs" ; kill -9 "$pid" 2>/dev/null ) & local killer=$!
+          wait "$pid" ; local rc=$?
+          kill "$killer" 2>/dev/null
+          wait "$killer" 2>/dev/null
+          return $rc
+        }
+
         for mode in busy yield alloc ; do
           for w in 0 1 2 4 ; do
             echo "== $mode workers=$w (expect ~8s) =="
-            timeout 60 opam exec -- ./yield_repro.exe $mode $w 8 \
-              || echo "   NO RESULT: exit $? (124 means it never finished)"
+            bounded 60 opam exec -- ./yield_repro.exe $mode $w 8 \
+              || echo "   NO RESULT: killed after 60s or exit $?"
           done
         done
 
