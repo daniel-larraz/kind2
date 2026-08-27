@@ -32,8 +32,6 @@ jobs:
         # is on PATH without asking opam for its environment.
         opam exec -- ocamlopt -version
         opam exec -- ocamlopt -I +unix -I +threads unix.cmxa threads.cmxa \
-          stw_repro.ml -o stw_repro.exe
-        opam exec -- ocamlopt -I +unix -I +threads unix.cmxa threads.cmxa \
           yield_repro.ml -o yield_repro.exe
 
     # The threads of one domain take turns under one master lock, so
@@ -65,16 +63,5 @@ jobs:
             echo "== $mode workers=$w (expect ~8s) =="
             bounded 60 opam exec -- ./yield_repro.exe $mode $w 8 \
               || echo "   NO RESULT: killed after 60s or exit $?"
-          done
-        done
-
-    - name: Sweep
-      shell: bash
-      run: |
-        set -u
-        cd ocaml-stw-repro
-        for mode in alloc compute threads io ; do
-          for d in 1 2 4 8 12 16 ; do
-            opam exec -- ./stw_repro.exe $mode $d 10
           done
         done
