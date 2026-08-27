@@ -33,6 +33,22 @@ jobs:
         opam exec -- ocamlopt -version
         opam exec -- ocamlopt -I +unix -I +threads unix.cmxa threads.cmxa \
           stw_repro.ml -o stw_repro.exe
+        opam exec -- ocamlopt -I +unix -I +threads unix.cmxa threads.cmxa \
+          yield_repro.ml -o yield_repro.exe
+
+    # The threads of one domain take turns under one master lock, so
+    # this contends whatever the core count is. Nothing here is
+    # oversubscribed.
+    - name: Do the threads of a domain get their turn
+      shell: bash
+      run: |
+        set -u
+        cd ocaml-stw-repro
+        for mode in busy yield alloc ; do
+          for w in 1 2 4 ; do
+            opam exec -- ./yield_repro.exe $mode $w 15
+          done
+        done
 
     - name: Sweep
       shell: bash
