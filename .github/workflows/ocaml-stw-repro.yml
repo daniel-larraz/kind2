@@ -65,3 +65,31 @@ jobs:
               || echo "   NO RESULT: killed after 60s or exit $?"
           done
         done
+
+    # The same binary, launched from PowerShell: no Cygwin shell, no
+    # `opam exec`, nothing of the CI environment between the runner and
+    # the program. If it hangs here too, the environment is not what is
+    # hanging it.
+    #
+    # Elapsed time is printed so that a program which fails to start --
+    # a missing DLL, say -- is not read as one that never finished.
+    - name: The same binary, outside Cygwin and opam
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        Set-Location ocaml-stw-repro
+        foreach ($arm in @(@('busy',1), @('alloc',1), @('yield',1), @('busy',0))) {
+          $mode = $arm[0] ; $w = $arm[1]
+          Write-Host "== $mode workers=$w (expect ~8s) =="
+          $clock = [Diagnostics.Stopwatch]::StartNew()
+          $p = Start-Process -FilePath .\yield_repro.exe -ArgumentList $mode,$w,8 `
+                 -PassThru -NoNewWindow
+          if ($p.WaitForExit(60000)) {
+            $clock.Stop()
+            Write-Host ("   exit {0} after {1:N1}s" -f $p.ExitCode, $clock.Elapsed.TotalSeconds)
+          } else {
+            $clock.Stop()
+            $p.Kill()
+            Write-Host "   NO RESULT: still running at 60s"
+          }
+        }
