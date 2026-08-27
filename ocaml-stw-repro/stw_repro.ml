@@ -20,10 +20,17 @@
      compute  each domain does integer arithmetic and allocates
               nothing, so there is no rendezvous to reach.
 
-   Both oversubscribe the machine identically. If only the allocating
-   arm stalls, the cause is the rendezvous and not the oversubscription.
+     threads  as alloc, and each domain also runs two systhreads that
+              allocate, since that is the shape Kind 2 has: about ten
+              domains and about thirty threads between them, every one
+              of which has to be at a safe point for the rendezvous to
+              complete.
 
-   Usage: stw_repro <alloc|compute> <domains> <seconds> *)
+   The first two oversubscribe the machine identically. If only the
+   allocating arm stalls, the cause is the rendezvous and not the
+   oversubscription.
+
+   Usage: stw_repro <alloc|compute|threads> <domains> <seconds> *)
 
 let stop = Atomic.make false
 
@@ -47,6 +54,13 @@ let compute_work () =
     ignore (Sys.opaque_identity !x)
   done
 
+(* Kind 2's domains each run threads of their own, and a rendezvous
+   waits for threads as well as for domains. *)
+let threads_work () =
+  let mine = List.init 2 (fun _ -> Thread.create alloc_work ()) in
+  alloc_work () ;
+  List.iter Thread.join mine
+
 let () =
   let mode = Sys.argv.(1) in
   let domains = int_of_string Sys.argv.(2) in
@@ -54,6 +68,7 @@ let () =
   let work = match mode with
     | "alloc" -> alloc_work
     | "compute" -> compute_work
+    | "threads" -> threads_work
     | m -> failwith ("unknown mode " ^ m)
   in
   let started = Unix.gettimeofday () in

@@ -32,15 +32,15 @@ jobs:
         # is on PATH without asking opam for its environment.
         opam exec -- ocamlopt -version
         opam exec -- ocamlopt -I +unix -I +threads unix.cmxa threads.cmxa \
-          stw_repro.ml -o stw_repro
+          stw_repro.ml -o stw_repro.exe
 
     - name: Sweep
       shell: bash
       run: |
         set -u
         cd ocaml-stw-repro
-        for mode in alloc compute ; do
+        for mode in alloc compute threads ; do
           for d in 1 2 4 8 12 16 ; do
-            opam exec -- ./stw_repro $mode $d 10
+            opam exec -- ./stw_repro.exe $mode $d 10
           done
         done
