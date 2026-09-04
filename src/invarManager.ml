@@ -212,7 +212,15 @@ let rec loop
   child_pids input_sys aparam trans_sys
 =
 
+  (* PROBE, never merged: is the loop turning, and what does an
+     iteration cost? The wall clock is looked at once per iteration on
+     Windows, so a long iteration is a late timeout. *)
+  let probe_at = Unix.gettimeofday () in
   handle_events input_sys aparam trans_sys ;
+  ( let spent = Unix.gettimeofday () -. probe_at in
+    if spent > 1.0 then
+      Printf.eprintf "PROBE handle_events took %.1fs, total_time now %.1fs\n%!"
+        spent (Stat.get_float Stat.total_time) ) ;
 
   (* On Windows there is no SIGALRM-based wall clock timeout: enforce
      it here. [handle_events] has just refreshed the total time. *)

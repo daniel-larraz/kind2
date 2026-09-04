@@ -1,0 +1,163 @@
+# Throwaway: does Kind 2 still stall on Windows with OCaml 5.5.1, and
+# is it one domain or the whole process? Delete when the question is
+# answered.
+#
+# Two tickers are built into this branch: one is a thread of the
+# supervisor's own domain, one has a domain to itself. Which of them
+# goes quiet says whether the runtime lock of one domain is held, or
+# nothing anywhere is running. The supervisor also reports any
+# iteration of its polling loop that takes over a second, since that
+# loop is the only thing that looks at the wall clock on Windows.
+name: Probe the stall on 5.5.1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ probe-the-stall-on-551 ]
+
+env:
+  Z3_VERSION: "4.15.3"
+  MATHSAT_VERSION: "5.6.17"
+  ROUNDS: "4"
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Build Kind 2
+      uses: ./.github/actions/build-kind2
+      with:
+        ocaml-version: 5.5.1
+
+    - name: Cache SMT solvers
+      id: cache-solvers
+      uses: actions/cache@v6
+      with:
+        path: solver-bin
+        key: smt-solvers-windows-x86_64-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
+
+    - name: Download SMT solvers (on cache miss)
+      if: steps.cache-solvers.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p solver-bin
+        Z3_DIR=z3-${Z3_VERSION}-x64-win
+        MS_DIR=mathsat-${MATHSAT_VERSION}-win64
+        curl -sSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_DIR}.zip"
+        unzip -q z3.zip
+        curl -sSL -o mathsat.zip "https://mathsat.fbk.eu/release/${MS_DIR}.zip"
+        unzip -q mathsat.zip
+        cp "$Z3_DIR"/bin/z3.exe "$Z3_DIR"/bin/*.dll solver-bin/
+        cp "$MS_DIR"/bin/mathsat.exe "$MS_DIR"/bin/*.dll solver-bin/
+
+    - name: Install SMT solvers
+      shell: bash
+      run: |
+        set -euo pipefail
+        chmod +x solver-bin/*
+        echo "${GITHUB_WORKSPACE}\\solver-bin" >> $GITHUB_PATH
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Sample the failing test
+      shell: bash
+      run: |
+        set -u
+        uv run --with psutil python - <<'PY'
+        import os, subprocess, threading, time
+        import psutil
+        from subprocess import PIPE, STDOUT, Popen
+
+        kind2 = os.path.join("bin", "kind2.exe")
+        lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
+        # Exactly what the harness runs, and its budget.
+        base = [kind2, "--timeout", "84", "--color", "false",
+                "--check_subproperties", "true", "--check_sat_assume", "false",
+                "--slice_nodes", "on"]
+        budget = 204
+        rounds = int(os.environ.get("ROUNDS", "4"))
+
+        print(f"runner reports {os.cpu_count()} CPUs", flush=True)
+
+        def attempt(n):
+            t0 = time.time()
+            proc = Popen(base + [lus], stdout=PIPE, stderr=STDOUT, bufsize=1,
+                         universal_newlines=True, errors="replace")
+            lines, samples = [], []
+
+            def pump():
+                for line in proc.stdout:
+                    lines.append((time.time() - t0, line.rstrip()))
+            threading.Thread(target=pump, daemon=True).start()
+
+            def sample():
+                me = psutil.Process(proc.pid)
+                try:
+                    c0 = me.cpu_times() ; prev = c0.user + c0.system
+                except psutil.Error:
+                    prev = 0.0
+                prev_kids = {}
+                while proc.poll() is None:
+                    time.sleep(1.0)
+                    at = time.time() - t0
+                    try:
+                        c = me.cpu_times() ; cur = c.user + c.system
+                        threads = me.num_threads()
+                    except psutil.Error:
+                        break
+                    kids, cur_kids = 0.0, {}
+                    for k in me.children(recursive=True):
+                        try:
+                            kc = k.cpu_times() ; tot = kc.user + kc.system
+                            cur_kids[k.pid] = tot
+                            kids += max(0.0, tot - prev_kids.get(k.pid, 0.0))
+                        except psutil.Error:
+                            pass
+                    samples.append((at, cur - prev, kids, len(cur_kids), threads))
+                    prev, prev_kids = cur, cur_kids
+            threading.Thread(target=sample, daemon=True).start()
+
+            try:
+                proc.wait(timeout=budget) ; killed = False
+            except subprocess.TimeoutExpired:
+                killed = True
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               capture_output=True)
+                proc.kill()
+            time.sleep(1.0)
+            dt = time.time() - t0
+            print(f"\n[run {n}] {'KILLED at budget' if killed else 'exit ' + str(proc.returncode)} after {dt:.0f}s",
+                  flush=True)
+
+            # What the run itself said, and when.
+            for at, line in lines:
+                if "PROBE" in line:
+                    print(f"    {at:6.1f}s | {line.split('PROBE ',1)[-1]}", flush=True)
+            said = [ (at, l) for at, l in lines if "Timeout" in l or "timeout" in l ]
+            for at, l in said[:3]:
+                print(f"    {at:6.1f}s | said: {l.strip()}", flush=True)
+            last = lines[-1] if lines else None
+            if last:
+                print(f"    last line at {last[0]:.1f}s: {last[1][:90]}", flush=True)
+
+            # Who held the CPU while it was quiet.
+            quiet = [s for s in samples if s[1] < 0.2]
+            print(f"    samples: {len(samples)}, of which under 0.2 core-seconds: {len(quiet)}",
+                  flush=True)
+            if samples:
+                worst = max(samples, key=lambda s: s[1])
+                print(f"    busiest second at {worst[0]:.0f}s: Kind 2 {worst[1]:.2f} cores "
+                      f"across {worst[4]} threads, {worst[3]} solvers {worst[2]:.2f} cores",
+                      flush=True)
+                tail = samples[-5:]
+                for at, k2, slv, nk, th in tail:
+                    print(f"    at {at:6.0f}s: Kind 2 {k2:.2f} cores, {nk} solvers {slv:.2f} cores, {th} threads",
+                          flush=True)
+
+        for n in range(1, rounds + 1):
+            attempt(n)
+        PY

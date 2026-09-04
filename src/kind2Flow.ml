@@ -955,6 +955,29 @@ let analyze msg_setup save_results ignore_props stop_if_falsified slice_to_prop 
       (* Start all child processes. *)
       prepared |> List.iter (spawn_process in_sys param) ;
 
+      (* PROBE, never merged: does OCaml stop running, and where?
+
+         One ticker is a thread of the supervisor's own domain, so it
+         is starved by anything that holds that domain's runtime lock.
+         The other has a domain to itself, so it keeps running unless
+         the whole process is stopped. Which of the two goes quiet says
+         whether this is one domain or all of them. *)
+      let probe_ticker label =
+        let previous = ref (Unix.gettimeofday ()) in
+        let started = Unix.gettimeofday () in
+        while true do
+          Thread.delay 0.01 ;
+          let now = Unix.gettimeofday () in
+          let gap = now -. !previous -. 0.01 in
+          if gap > 1.0 then
+            Printf.eprintf "PROBE %s silent %.1fs, ending at %.1fs\n%!"
+              label gap (now -. started) ;
+          previous := now
+        done
+      in
+      ignore (Thread.create probe_ticker "supervisor-domain-thread") ;
+      ignore (Domain.spawn (fun () -> probe_ticker "a-domain-of-its-own")) ;
+
       (* Running supervisor. *)
       InvarManager.main 
         (run_process in_sys param sys msg_setup)
