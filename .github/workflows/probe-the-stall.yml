@@ -18,7 +18,7 @@ on:
 env:
   Z3_VERSION: "4.15.3"
   MATHSAT_VERSION: "5.6.17"
-  ROUNDS: "4"
+  ROUNDS: "2"
 
 jobs:
   probe:
@@ -126,9 +126,12 @@ jobs:
 
         print(f"runner reports {os.cpu_count()} CPUs", flush=True)
 
-        def attempt(n):
+        def attempt(n, arm="default", extra_env=None):
             t0 = time.time()
+            env = dict(os.environ)
+            env.update(extra_env or {})
             proc = Popen(base + [lus], stdout=PIPE, stderr=STDOUT, bufsize=1,
+                         env=env,
                          universal_newlines=True, errors="replace")
             lines, samples = [], []
 
@@ -181,7 +184,8 @@ jobs:
                 proc.kill()
             time.sleep(1.0)
             dt = time.time() - t0
-            print(f"\n[run {n}] {'KILLED at budget' if killed else 'exit ' + str(proc.returncode)} after {dt:.0f}s",
+            print(f"\n[{arm} run {n}] "
+                  f"{'KILLED at budget' if killed else 'exit ' + str(proc.returncode)} after {dt:.0f}s",
                   flush=True)
 
             # What the run itself said, and when.
@@ -209,6 +213,28 @@ jobs:
                     print(f"    at {at:6.0f}s: Kind 2 {k2:.2f} cores, {nk} solvers {slv:.2f} cores, {th} threads",
                           flush=True)
 
-        for n in range(1, rounds + 1):
-            attempt(n)
+        # Does the cost live in the collections themselves?
+        #
+        # The same call does ~200 minor collections whatever the
+        # platform, and takes 1.5s on Linux against up to 175s here.
+        # Every minor collection in OCaml 5 stops every domain, and
+        # there are eleven of them, so if a rendezvous is what is
+        # expensive, making collections rarer should take most of the
+        # time away with them. A larger minor heap is how to ask.
+        #
+        # The number to watch is seconds per collection, not seconds:
+        # if the rendezvous is the cost, that stays flat while the
+        # count and the total fall together.
+        #
+        # An earlier attempt at this comparison was confounded -- every
+        # large-heap run found a counterexample and no small-heap run
+        # did, so the arms were not doing the same work. Hence the exit
+        # code is printed with each run, and arms are only comparable
+        # where it matches.
+        for arm, env in (("default", None),
+                         ("minor heap 2M words", {"OCAMLRUNPARAM": "s=2M"}),
+                         ("minor heap 8M words", {"OCAMLRUNPARAM": "s=8M"})):
+            print(f"\n########## {arm} ##########", flush=True)
+            for n in range(1, rounds + 1):
+                attempt(n, arm, env)
         PY
