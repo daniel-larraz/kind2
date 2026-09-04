@@ -237,12 +237,21 @@ jobs:
         # reads is overwritten before it can matter. Sizes are in words:
         # 262144 is the runtime's own default, 1048576 what Kind 2 ships,
         # 4194304 four times that.
-        for arm, env in (("minor heap 256k words (runtime default)",
-                          {"KIND2_PROBE_MINOR_HEAP": "262144"}),
-                         ("minor heap 1M words (what Kind 2 ships)",
+        # 4M halved the Windows time against the 1M that ships, with the
+        # same verdict either way, and changed nothing on Linux or
+        # macOS. Does it keep halving, or is there a floor? A floor
+        # would say part of the cost is not in the collections at all.
+        #
+        # 256k is dropped: it timed out, so it did different work and
+        # was comparable to nothing.
+        for arm, env in (("minor heap 1M words (what Kind 2 ships)",
                           {"KIND2_PROBE_MINOR_HEAP": "1048576"}),
                          ("minor heap 4M words",
-                          {"KIND2_PROBE_MINOR_HEAP": "4194304"})):
+                          {"KIND2_PROBE_MINOR_HEAP": "4194304"}),
+                         ("minor heap 16M words",
+                          {"KIND2_PROBE_MINOR_HEAP": "16777216"}),
+                         ("minor heap 64M words",
+                          {"KIND2_PROBE_MINOR_HEAP": "67108864"})):
             print(f"\n########## {arm} ##########", flush=True)
             for n in range(1, rounds + 1):
                 attempt(n, arm, env)
