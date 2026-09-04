@@ -967,10 +967,18 @@ let analyze msg_setup save_results ignore_props stop_if_falsified slice_to_prop 
         let started = Unix.gettimeofday () in
         let before = ref (Gc.quick_stat ()) in
         while true do
+          (* Where does a silence sit? This loop is only the delay, a
+             clock reading and a [quick_stat], so timing the delay by
+             itself says whether the time goes into coming back from a
+             blocking section -- on Windows a `Sleep` and then taking
+             the runtime lock again -- or into the rest. *)
+          let entered = Unix.gettimeofday () in
           Thread.delay 0.01 ;
-          let now = Unix.gettimeofday () in
+          let left = Unix.gettimeofday () in
+          let now = left in
           let gap = now -. !previous -. 0.01 in
           let after = Gc.quick_stat () in
+          let in_delay = left -. entered in
           (* The counters of [Gc.quick_stat] are the calling domain's,
              which is the point: a silence with collections in it was
              this domain doing collector work, most likely joining a
@@ -979,8 +987,9 @@ let analyze msg_setup save_results ignore_props stop_if_falsified slice_to_prop 
              this domain not running at all. *)
           if gap > 1.0 then
             Printf.eprintf
-              "PROBE %s silent %.1fs, ending at %.1fs, own minor %d major %d\n%!"
-              label gap (now -. started)
+              "PROBE %s silent %.1fs (%.1fs of it inside Thread.delay), \
+               ending at %.1fs, own minor %d major %d\n%!"
+              label gap in_delay (now -. started)
               (after.Gc.minor_collections - (!before).Gc.minor_collections)
               (after.Gc.major_collections - (!before).Gc.major_collections) ;
           before := after ;
