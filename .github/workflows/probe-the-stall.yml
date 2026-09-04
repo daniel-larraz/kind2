@@ -36,10 +36,6 @@ jobs:
         include:
           - name: windows-x86_64
             os: windows-latest
-          - name: linux-x86_64
-            os: ubuntu-latest
-          - name: macos-arm64
-            os: macos-latest
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v6
@@ -126,11 +122,12 @@ jobs:
 
         print(f"runner reports {os.cpu_count()} CPUs", flush=True)
 
-        def attempt(n, arm="default", extra_env=None):
+        def attempt(n, arm="default", extra_env=None, extra_args=None):
             t0 = time.time()
             env = dict(os.environ)
             env.update(extra_env or {})
-            proc = Popen(base + [lus], stdout=PIPE, stderr=STDOUT, bufsize=1,
+            proc = Popen(base + (extra_args or []) + [lus],
+                         stdout=PIPE, stderr=STDOUT, bufsize=1,
                          env=env,
                          universal_newlines=True, errors="replace")
             lines, samples = [], []
@@ -244,15 +241,32 @@ jobs:
         #
         # 256k is dropped: it timed out, so it did different work and
         # was comparable to nothing.
-        for arm, env in (("minor heap 1M words (what Kind 2 ships)",
-                          {"KIND2_PROBE_MINOR_HEAP": "1048576"}),
-                         ("minor heap 4M words",
-                          {"KIND2_PROBE_MINOR_HEAP": "4194304"}),
-                         ("minor heap 16M words",
-                          {"KIND2_PROBE_MINOR_HEAP": "16777216"}),
-                         ("minor heap 64M words",
-                          {"KIND2_PROBE_MINOR_HEAP": "67108864"})):
+        # Cut the failing program down rather than build a stand-in up.
+        # Four synthetic guesses have now come back clean, so the
+        # ingredient is one I keep failing to pick; the failing run is
+        # in hand, and shrinking it cannot miss what building up does.
+        #
+        # The signal is the presence of multi-second freezes, not the
+        # runtime: these arms do different amounts of work by design and
+        # their wall clocks are not comparable to each other.
+        #
+        # Every arm keeps the shipped 1M minor heap, since that is where
+        # the freezes are frequent.
+        cuts = (
+          ("everything, as the harness runs it", []),
+          # MathSAT arrived with #1445, when the failures began.
+          ("Z3 for interpolation, not MathSAT", ["--smt_itp_solver", "Z3qe"]),
+          # Fewer domains: does the freeze need many of them?
+          ("only BMC and IND", ["--enable", "BMC", "--enable", "IND"]),
+          # IC3IA is what MathSAT made expensive.
+          ("everything but IC3IA", ["--enable", "BMC", "--enable", "IND",
+                                    "--enable", "IND2", "--enable", "IC3QE",
+                                    "--enable", "INVGEN", "--enable", "INVGENOS"]),
+          # Slicing off changes how much work the engines are given.
+          ("no node slicing", ["--slice_nodes", "off"]),
+        )
+        for arm, extra in cuts:
             print(f"\n########## {arm} ##########", flush=True)
             for n in range(1, rounds + 1):
-                attempt(n, arm, env)
+                attempt(n, arm, {"KIND2_PROBE_MINOR_HEAP": "1048576"}, extra)
         PY
