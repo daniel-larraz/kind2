@@ -22,7 +22,25 @@ env:
 
 jobs:
   probe:
-    runs-on: windows-latest
+    # The delay overshoot has only ever been measured on Windows, and
+    # the synthetic tests do not reproduce it anywhere, so they cannot
+    # clear the other platforms either. Same instrumented build, same
+    # model, three runners.
+    #
+    # Only Windows can show a late *timeout*: elsewhere SIGALRM raises
+    # it and the loop's cadence does not come into it. What the other
+    # two are here for is the PROBE lines about `Thread.delay`.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x86_64
+            os: windows-latest
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: macos-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v6
 
@@ -36,7 +54,7 @@ jobs:
       uses: actions/cache@v6
       with:
         path: solver-bin
-        key: smt-solvers-windows-x86_64-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
+        key: smt-solvers-${{ matrix.name }}-z3-${{ env.Z3_VERSION }}-mathsat-${{ env.MATHSAT_VERSION }}
 
     - name: Download SMT solvers (on cache miss)
       if: steps.cache-solvers.outputs.cache-hit != 'true'
@@ -44,21 +62,46 @@ jobs:
       run: |
         set -euo pipefail
         mkdir -p solver-bin
-        Z3_DIR=z3-${Z3_VERSION}-x64-win
-        MS_DIR=mathsat-${MATHSAT_VERSION}-win64
+        case "${{ matrix.name }}" in
+          linux-x86_64)   Z3_DIR=z3-${Z3_VERSION}-x64-glibc-2.39   ; MS_DIR=mathsat-${MATHSAT_VERSION}-linux-x86_64  ;;
+          macos-arm64)    Z3_DIR=z3-${Z3_VERSION}-arm64-osx-13.7.6 ; MS_DIR=mathsat-${MATHSAT_VERSION}-macos         ;;
+          windows-x86_64) Z3_DIR=z3-${Z3_VERSION}-x64-win          ; MS_DIR=mathsat-${MATHSAT_VERSION}-win64         ;;
+        esac
         curl -sSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_DIR}.zip"
         unzip -q z3.zip
-        curl -sSL -o mathsat.zip "https://mathsat.fbk.eu/release/${MS_DIR}.zip"
-        unzip -q mathsat.zip
-        cp "$Z3_DIR"/bin/z3.exe "$Z3_DIR"/bin/*.dll solver-bin/
-        cp "$MS_DIR"/bin/mathsat.exe "$MS_DIR"/bin/*.dll solver-bin/
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          curl -sSL -o mathsat.zip "https://mathsat.fbk.eu/release/${MS_DIR}.zip"
+          unzip -q mathsat.zip
+          cp "$Z3_DIR"/bin/z3.exe "$Z3_DIR"/bin/*.dll solver-bin/
+          cp "$MS_DIR"/bin/mathsat.exe "$MS_DIR"/bin/*.dll solver-bin/
+        else
+          curl -sSL -o mathsat.tar.gz "https://mathsat.fbk.eu/release/${MS_DIR}.tar.gz"
+          tar xzf mathsat.tar.gz
+          cp "$Z3_DIR/bin/z3" solver-bin/
+          cp "$MS_DIR/bin/mathsat" solver-bin/
+        fi
+
+    # As in kind2-ci: the macOS MathSAT loads GMP from the MacPorts path
+    # it was linked against, and the runners carry Homebrew.
+    - name: Give MathSAT the GMP it links against (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        set -euo pipefail
+        brew install gmp
+        sudo mkdir -p /opt/local/lib
+        sudo ln -sf "$(brew --prefix gmp)/lib/libgmp.10.dylib" /opt/local/lib/libgmp.10.dylib
 
     - name: Install SMT solvers
       shell: bash
       run: |
         set -euo pipefail
         chmod +x solver-bin/*
-        echo "${GITHUB_WORKSPACE}\\solver-bin" >> $GITHUB_PATH
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          # A native path, since kind2.exe reads it and not only bash
+          echo "${GITHUB_WORKSPACE}\\solver-bin" >> $GITHUB_PATH
+        else
+          sudo cp solver-bin/z3 solver-bin/mathsat /usr/local/bin/
+        fi
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -72,7 +115,7 @@ jobs:
         import psutil
         from subprocess import PIPE, STDOUT, Popen
 
-        kind2 = os.path.join("bin", "kind2.exe")
+        kind2 = os.path.join("bin", "kind2.exe" if os.name == "nt" else "kind2")
         lus = os.path.join("tests", "regression", "falsifiable", "test-issue-127.lus")
         # Exactly what the harness runs, and its budget.
         base = [kind2, "--timeout", "84", "--color", "false",
@@ -125,8 +168,16 @@ jobs:
                 proc.wait(timeout=budget) ; killed = False
             except subprocess.TimeoutExpired:
                 killed = True
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                               capture_output=True)
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                   capture_output=True)
+                else:
+                    # Kind 2's solvers are its children; take the tree.
+                    try:
+                        for kid in psutil.Process(proc.pid).children(recursive=True):
+                            kid.kill()
+                    except psutil.Error:
+                        pass
                 proc.kill()
             time.sleep(1.0)
             dt = time.time() - t0
