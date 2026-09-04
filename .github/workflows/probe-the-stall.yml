@@ -231,9 +231,18 @@ jobs:
         # did, so the arms were not doing the same work. Hence the exit
         # code is printed with each run, and arms are only comparable
         # where it matches.
-        for arm, env in (("default", None),
-                         ("minor heap 2M words", {"OCAMLRUNPARAM": "s=2M"}),
-                         ("minor heap 8M words", {"OCAMLRUNPARAM": "s=8M"})):
+        # KIND2_PROBE_MINOR_HEAP, not OCAMLRUNPARAM: `engineDomains.ml`
+        # assigns the minor heap size itself, in the supervisor and again
+        # in every engine domain, so the environment variable the runtime
+        # reads is overwritten before it can matter. Sizes are in words:
+        # 262144 is the runtime's own default, 1048576 what Kind 2 ships,
+        # 4194304 four times that.
+        for arm, env in (("minor heap 256k words (runtime default)",
+                          {"KIND2_PROBE_MINOR_HEAP": "262144"}),
+                         ("minor heap 1M words (what Kind 2 ships)",
+                          {"KIND2_PROBE_MINOR_HEAP": "1048576"}),
+                         ("minor heap 4M words",
+                          {"KIND2_PROBE_MINOR_HEAP": "4194304"})):
             print(f"\n########## {arm} ##########", flush=True)
             for n in range(1, rounds + 1):
                 attempt(n, arm, env)

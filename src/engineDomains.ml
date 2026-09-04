@@ -100,7 +100,14 @@ let signals_to_block =
    Collecting four times less often is enough to close that gap, and
    costs 8MB per engine. The setting is not inherited from the
    supervisor, so each domain must apply it to itself. *)
-let engine_minor_heap_size = 1 lsl 20
+(* PROBE, never merged: the size is the knob under test, so it has to
+   be settable from outside. `OCAMLRUNPARAM=s=...` is not the way --
+   this assignment overwrites it, which is what made the first attempt
+   at this comparison measure the same program three times. *)
+let engine_minor_heap_size =
+  match Sys.getenv_opt "KIND2_PROBE_MINOR_HEAP" with
+  | Some words -> ( try int_of_string words with _ -> 1 lsl 20 )
+  | None -> 1 lsl 20
 
 (* Give the minor heap of the supervisor the size the engines use.
 
@@ -116,7 +123,12 @@ let engine_minor_heap_size = 1 lsl 20
 
    Call before spawning any engine. *)
 let reserve_minor_heaps () =
-  Gc.set { (Gc.get ()) with Gc.minor_heap_size = engine_minor_heap_size }
+  Gc.set { (Gc.get ()) with Gc.minor_heap_size = engine_minor_heap_size } ;
+  (* PROBE, never merged: what was asked for, and what the runtime
+     actually holds afterwards. An arm whose size did not change is an
+     arm that measured nothing. *)
+  Printf.eprintf "PROBE minor heap asked %d words, runtime reports %d\n%!"
+    engine_minor_heap_size (Gc.get ()).Gc.minor_heap_size
 
 (* Spawn [f] in a new domain as the engine [mdl] with identifier [id].
    [f] handles its own cleanup and returns the unexpected exception it
