@@ -965,13 +965,25 @@ let analyze msg_setup save_results ignore_props stop_if_falsified slice_to_prop 
       let probe_ticker label =
         let previous = ref (Unix.gettimeofday ()) in
         let started = Unix.gettimeofday () in
+        let before = ref (Gc.quick_stat ()) in
         while true do
           Thread.delay 0.01 ;
           let now = Unix.gettimeofday () in
           let gap = now -. !previous -. 0.01 in
+          let after = Gc.quick_stat () in
+          (* The counters of [Gc.quick_stat] are the calling domain's,
+             which is the point: a silence with collections in it was
+             this domain doing collector work, most likely joining a
+             rendezvous somebody else began, since every minor
+             collection stops every domain. A silence with none was
+             this domain not running at all. *)
           if gap > 1.0 then
-            Printf.eprintf "PROBE %s silent %.1fs, ending at %.1fs\n%!"
-              label gap (now -. started) ;
+            Printf.eprintf
+              "PROBE %s silent %.1fs, ending at %.1fs, own minor %d major %d\n%!"
+              label gap (now -. started)
+              (after.Gc.minor_collections - (!before).Gc.minor_collections)
+              (after.Gc.major_collections - (!before).Gc.major_collections) ;
+          before := after ;
           previous := now
         done
       in
