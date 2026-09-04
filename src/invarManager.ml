@@ -18,26 +18,51 @@
         
 open Lib
 
-let handle_events input_sys aparam trans_sys = 
+(* PROBE, never merged: [handle_events] has been measured taking 81 to
+   145 seconds in a single call on Windows, which is the whole of the
+   timeout overrun, since the wall clock is looked at once per
+   iteration and only after this returns. This says which part of it,
+   and what the collector was doing meanwhile. *)
+let probe_gc label f =
+  let before = Gc.quick_stat () in
+  let at = Unix.gettimeofday () in
+  let r = f () in
+  let spent = Unix.gettimeofday () -. at in
+  if spent > 1.0 then (
+    let after = Gc.quick_stat () in
+    Printf.eprintf
+      "PROBE %s took %.1fs, minor %d major %d compact %d, heap words %d\n%!"
+      label spent
+      (after.Gc.minor_collections - before.Gc.minor_collections)
+      (after.Gc.major_collections - before.Gc.major_collections)
+      (after.Gc.compactions - before.Gc.compactions)
+      after.Gc.heap_words
+  ) ;
+  r
+
+let handle_events input_sys aparam trans_sys =
 
   (* Receive queued events *)
-  let events = KEvent.recv () in
+  let events = probe_gc "recv" (fun () -> KEvent.recv ()) in
 
   (* Output events *)
-  List.iter 
-    (function (m, e) -> 
+  probe_gc "logging" (fun () ->
+  List.iter
+    (function (m, e) ->
       KEvent.log
         L_debug
         "Message received from %a: %a"
         pp_print_kind_module m
         KEvent.pp_print_event e)
-    events;
+    events) ;
 
   (* Update transition system from events *)
   let _ =
-    KEvent.update_trans_sys input_sys aparam trans_sys events
+    probe_gc "update_trans_sys" (fun () ->
+      KEvent.update_trans_sys input_sys aparam trans_sys events)
   in
 
+  Printf.eprintf "PROBE iteration saw %d events\n%!" (List.length events) ;
   ()
 
 let print_stats trans_sys =

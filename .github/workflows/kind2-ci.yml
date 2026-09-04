@@ -8,6 +8,10 @@ on:
     # test, and every job here would fail on the missing dune-project.
     branches-ignore:
       - gh-pages
+      # PROBE BRANCH, never merged: it exists to run one Windows job that
+      # measures a stall, and the full matrix says nothing about it, so
+      # only `probe-the-stall.yml` runs on a push there.
+      - probe-the-stall-on-551
     # Naming a branch filter would otherwise drop tag pushes, and the nightly
     # and release tags are built too.
     tags:
