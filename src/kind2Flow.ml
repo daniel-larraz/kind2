@@ -996,8 +996,44 @@ let analyze msg_setup save_results ignore_props stop_if_falsified slice_to_prop 
           previous := now
         done
       in
+      (* PROBE, never merged: the discriminator.
+
+         The tickers above sleep, so a long gap cannot tell "the sleep
+         took six seconds to return" from "the process was frozen for
+         six seconds and the sleeper noticed". This one never sleeps:
+         it spins on the clock, so it leaves the runtime for nothing
+         and returns to it for nothing.
+
+         Both observe the same run, so run to run variance -- which is
+         what makes the arm comparisons unreadable -- cancels. If the
+         spinner sees the same gaps as the sleeper beside it, the
+         process is being stopped and Thread.delay is innocent. If it
+         runs smoothly through gaps the sleeper reports, the delay path
+         is where the time goes.
+
+         It burns a core for the length of the run, which is why it is
+         a probe and not a feature. *)
+      let probe_spinner label =
+        let previous = ref (Unix.gettimeofday ()) in
+        let started = Unix.gettimeofday () in
+        let sink = ref 0 in
+        while true do
+          (* Enough arithmetic to be a poll point, and no allocation,
+             so this cannot itself trigger a collection. *)
+          for i = 1 to 20_000 do sink := (!sink + i) land 0xffff done ;
+          ignore (Sys.opaque_identity !sink) ;
+          let now = Unix.gettimeofday () in
+          let gap = now -. !previous in
+          if gap > 1.0 then
+            Printf.eprintf "PROBE %s silent %.1fs, ending at %.1fs\n%!"
+              label gap (now -. started) ;
+          previous := now
+        done
+      in
+
       ignore (Thread.create probe_ticker "supervisor-domain-thread") ;
       ignore (Domain.spawn (fun () -> probe_ticker "a-domain-of-its-own")) ;
+      ignore (Domain.spawn (fun () -> probe_spinner "a-spinner-of-its-own")) ;
 
       (* Running supervisor. *)
       InvarManager.main 

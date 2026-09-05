@@ -18,7 +18,7 @@ on:
 env:
   Z3_VERSION: "4.15.3"
   MATHSAT_VERSION: "5.6.17"
-  ROUNDS: "2"
+  ROUNDS: "3"
 
 jobs:
   probe:
@@ -266,31 +266,34 @@ jobs:
         # The question it can finally ask: does the freeze simply need
         # more busy domains than the machine has cores? The runner has
         # four. Nothing else varies.
-        # Allocation is not the variable either: six engines froze
-        # zero times whether every step carried a 24 field record or
-        # nothing at all, and the full set froze on both models. So it
-        # is the engine count after all -- but the threshold is not the
-        # core count, since six domains on four cores stay clean. It
-        # sits somewhere between seven and the full set.
+        # Is `Thread.delay` the cause, or only where the freeze shows?
         #
-        # The six engine set omits three the default enables:
-        # INVGENINT, INVGENINTOS and IC3IA. Add them one at a time and
-        # the threshold is pinned. Same fixed duration model, so the
-        # counts stay comparable.
+        # Every measurement of it brackets the call, so "the sleep took
+        # six seconds to return" and "the process was frozen and the
+        # sleeper noticed" read identically. This build adds a third
+        # observer that never sleeps: a domain of its own spinning on
+        # the clock. All three watch the same run, so the run to run
+        # variance that makes arm comparisons unreadable cancels --
+        # this is a paired comparison and two runs are enough.
+        #
+        # The spinner reporting the same gaps means the process is
+        # stopped and the delay is innocent. The spinner running clean
+        # through gaps the sleepers report means the delay path is
+        # where the time goes.
+        #
+        # Two arms only, on the model that settles nothing, so both run
+        # the full minute: the engine set that froze most often, and
+        # the default.
         base = [kind2, "--timeout", "60", "--color", "false"]
         budget = 150
         lus = os.path.join("tests", "probe-nothing-settles.lus")
-        six = ["--enable", "BMC", "--enable", "IND", "--enable", "IND2",
-               "--enable", "IC3QE", "--enable", "INVGEN", "--enable", "INVGENOS"]
         cuts = (
-          ("6 engines", six),
-          ("7 (+INVGENINT)", six + ["--enable", "INVGENINT"]),
-          ("8 (+INVGENINTOS)", six + ["--enable", "INVGENINT",
-                                      "--enable", "INVGENINTOS"]),
-          ("9 (+IC3IA)", six + ["--enable", "INVGENINT",
-                                "--enable", "INVGENINTOS",
-                                "--enable", "IC3IA"]),
           ("everything", []),
+          ("9 engines", ["--enable", "BMC", "--enable", "IND",
+                         "--enable", "IND2", "--enable", "IC3QE",
+                         "--enable", "INVGEN", "--enable", "INVGENOS",
+                         "--enable", "INVGENINT", "--enable", "INVGENINTOS",
+                         "--enable", "IC3IA"]),
         )
         for arm, extra in cuts:
             print(f"\n########## {arm} ##########", flush=True)
