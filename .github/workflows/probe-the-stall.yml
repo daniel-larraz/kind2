@@ -109,8 +109,11 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
-        opam exec -- ocamlfind ocamlopt -package runtime_events,unix -linkpkg \
-          tests/probe-pauses.ml -o probe-pauses.exe
+        # Not ocamlfind: it is not in the switch the Windows build
+        # makes, and both libraries are the compiler's own.
+        opam exec -- ocamlopt -I +unix -I +runtime_events \
+          unix.cmxa runtime_events.cmxa \
+          tests/probe_pauses.ml -o probe-pauses.exe
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
