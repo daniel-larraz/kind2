@@ -258,17 +258,26 @@ jobs:
         # the one engine that spawns an instance per property, each with
         # solvers of its own, and `--ic3ia_max` caps how many run at
         # once (default 2).
+        # The earliest freeze ever reported is at 5.6s, and most arrive
+        # after 8s. So an arm that finishes in 2 to 4 seconds cannot
+        # show one, and its zero says nothing -- which is what voided
+        # the reading that "everything but IC3IA" clears the freezes:
+        # it found its counterexample in 4s and stopped.
+        #
+        # This model is not falsified quickly by anything, so every arm
+        # here runs to its timeout and every arm gets the same chance.
+        lus = os.path.join("tests", "regression", "success",
+                           "quant_finite_nested_binders.lus")
         cuts = (
           ("everything, as the harness runs it", []),
-          # IC3IA on its own. If this freezes, it is a whole minimal
-          # configuration and nothing else is needed to provoke it.
+          # Now a fair comparison: both of these run the full budget.
+          ("everything but IC3IA", ["--enable", "BMC", "--enable", "IND",
+                                    "--enable", "IND2", "--enable", "IC3QE",
+                                    "--enable", "INVGEN", "--enable", "INVGENOS"]),
+          ("only BMC and IND", ["--enable", "BMC", "--enable", "IND"]),
+          # IC3IA alone ran 87s with no freeze on the other model, so
+          # it is not sufficient on its own. Repeat it here.
           ("IC3IA alone", ["--enable", "IC3IA"]),
-          ("IC3IA alone, one instance",
-           ["--enable", "IC3IA", "--ic3ia_max", "1"]),
-          # Everything, but IC3IA held to a single instance: separates
-          # what IC3IA does from how many of it there are.
-          ("everything, IC3IA held to one instance", ["--ic3ia_max", "1"]),
-          ("everything, IC3IA allowed four", ["--ic3ia_max", "4"]),
         )
         for arm, extra in cuts:
             print(f"\n########## {arm} ##########", flush=True)
