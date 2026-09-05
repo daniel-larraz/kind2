@@ -266,23 +266,34 @@ jobs:
         # The question it can finally ask: does the freeze simply need
         # more busy domains than the machine has cores? The runner has
         # four. Nothing else varies.
-        lus = os.path.join("tests", "probe-nothing-settles.lus")
+        # Engine count was not the variable: six engines on four cores
+        # froze not once in sixty seconds on the light model, while six
+        # engines on a real model froze four to fifteen times. What a
+        # real model does that the light one does not is allocate.
+        #
+        # Same two engine counts, same fixed duration, on a light model
+        # and a heavy one. The heavy carries a record of 24 fields
+        # through every step; nothing else differs. If six engines
+        # freeze on the heavy model and not the light, allocation
+        # volume is the second ingredient and a stand-in becomes a
+        # matter of copying the recipe rather than guessing at it.
         base = [kind2, "--timeout", "60", "--color", "false"]
         budget = 150
+        six = ["--enable", "BMC", "--enable", "IND", "--enable", "IND2",
+               "--enable", "IC3QE", "--enable", "INVGEN", "--enable", "INVGENOS"]
+        light = os.path.join("tests", "probe-nothing-settles.lus")
+        heavy = os.path.join("tests", "probe-nothing-settles-heavy.lus")
         cuts = (
-          ("1 engine  (BMC)", ["--enable", "BMC"]),
-          ("2 engines (BMC IND)", ["--enable", "BMC", "--enable", "IND"]),
-          ("3 engines (+IND2)", ["--enable", "BMC", "--enable", "IND",
-                                 "--enable", "IND2"]),
-          ("4 engines (+IC3QE)", ["--enable", "BMC", "--enable", "IND",
-                                  "--enable", "IND2", "--enable", "IC3QE"]),
-          ("6 engines (+INVGEN, INVGENOS)",
-           ["--enable", "BMC", "--enable", "IND", "--enable", "IND2",
-            "--enable", "IC3QE", "--enable", "INVGEN", "--enable", "INVGENOS"]),
-          ("everything, whatever that is", []),
+          ("light model, 6 engines", light, six),
+          ("HEAVY model, 6 engines", heavy, six),
+          ("light model, everything", light, []),
+          ("HEAVY model, everything", heavy, []),
+          ("HEAVY model, 2 engines", heavy,
+           ["--enable", "BMC", "--enable", "IND"]),
         )
-        for arm, extra in cuts:
+        for arm, model, extra in cuts:
             print(f"\n########## {arm} ##########", flush=True)
+            lus = model
             for n in range(1, rounds + 1):
                 attempt(n, arm, {"KIND2_PROBE_MINOR_HEAP": "1048576"}, extra)
         PY

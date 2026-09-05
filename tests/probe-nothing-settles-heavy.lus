@@ -1,0 +1,200 @@
+-- As `probe-nothing-settles.lus`, but allocating heavily.
+--
+-- That model settles in no configuration, which fixed the run length
+-- and let engine count be varied on its own. The answer was that
+-- engine count is not the variable: six engines on four cores froze
+-- not once in sixty seconds there, while six engines on a real model
+-- froze four to fifteen times. What a real model does that the other
+-- did not is allocate -- it builds terms and invariants continuously,
+-- where integer counters build nothing.
+--
+-- So this is the same shape with a record of 24 fields carried
+-- through every step, giving the engines terms to build. Each
+-- property is still false about a million steps in, so nothing
+-- settles and every arm still runs the full timeout.
+
+type bag = struct { f0 : int; f1 : int; f2 : int; f3 : int; f4 : int; f5 : int; f6 : int; f7 : int; f8 : int; f9 : int; f10 : int; f11 : int; f12 : int; f13 : int; f14 : int; f15 : int; f16 : int; f17 : int; f18 : int; f19 : int; f20 : int; f21 : int; f22 : int; f23 : int };
+
+node prop0 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 500 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1000000) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop1 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 501 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1007919) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop2 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 502 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1015838) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop3 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 503 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1023757) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop4 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 504 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1031676) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop5 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 505 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1039595) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop6 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 506 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1047514) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop7 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 507 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1055433) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop8 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 508 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1063352) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop9 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 509 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1071271) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop10 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 510 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1079190) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop11 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 511 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1087109) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop12 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 512 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1095028) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop13 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 513 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1102947) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop14 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 514 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1110866) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node prop15 (u : bool) returns (ok : bool);
+var c : int; d : int; b : bag;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 515 then 0 else 1);
+  b = bag { f0 = 0; f1 = 1; f2 = 2; f3 = 3; f4 = 4; f5 = 5; f6 = 6; f7 = 7; f8 = 8; f9 = 9; f10 = 10; f11 = 11; f12 = 12; f13 = 13; f14 = 14; f15 = 15; f16 = 16; f17 = 17; f18 = 18; f19 = 19; f20 = 20; f21 = 21; f22 = 22; f23 = 23 } -> bag { f0 = pre b.f1 + 0; f1 = pre b.f2 + 1; f2 = pre b.f3 + 2; f3 = pre b.f4 + 3; f4 = pre b.f5 + 4; f5 = pre b.f6 + 5; f6 = pre b.f7 + 6; f7 = pre b.f8 + 7; f8 = pre b.f9 + 8; f9 = pre b.f10 + 9; f10 = pre b.f11 + 10; f11 = pre b.f12 + 11; f12 = pre b.f13 + 12; f13 = pre b.f14 + 13; f14 = pre b.f15 + 14; f15 = pre b.f16 + 15; f16 = pre b.f17 + 16; f17 = pre b.f18 + 17; f18 = pre b.f19 + 18; f19 = pre b.f20 + 19; f20 = pre b.f21 + 20; f21 = pre b.f22 + 21; f22 = pre b.f23 + 22; f23 = pre b.f0 + 23 };
+  ok = (c < 1118785) and (d >= c) and (b.f0 + b.f23 >= 0);
+  --%PROPERTY ok;
+tel
+
+node top (u : bool) returns (ok : bool);
+var o0 : bool; o1 : bool; o2 : bool; o3 : bool; o4 : bool; o5 : bool; o6 : bool; o7 : bool; o8 : bool; o9 : bool; o10 : bool; o11 : bool; o12 : bool; o13 : bool; o14 : bool; o15 : bool;
+let
+  o0 = prop0(u);
+  o1 = prop1(u);
+  o2 = prop2(u);
+  o3 = prop3(u);
+  o4 = prop4(u);
+  o5 = prop5(u);
+  o6 = prop6(u);
+  o7 = prop7(u);
+  o8 = prop8(u);
+  o9 = prop9(u);
+  o10 = prop10(u);
+  o11 = prop11(u);
+  o12 = prop12(u);
+  o13 = prop13(u);
+  o14 = prop14(u);
+  o15 = prop15(u);
+  ok = o0 and o1 and o2 and o3 and o4 and o5 and o6 and o7 and o8 and o9 and o10 and o11 and o12 and o13 and o14 and o15;
+  --%MAIN;
+  --%PROPERTY ok;
+tel
