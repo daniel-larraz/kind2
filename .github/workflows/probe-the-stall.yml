@@ -252,18 +252,23 @@ jobs:
         #
         # Every arm keeps the shipped 1M minor heap, since that is where
         # the freezes are frequent.
+        # IC3IA is the ingredient: six engines without it run in 4s with
+        # no freeze at all, and putting it back gives 161s with forty.
+        # So is it what IC3IA does, or how many of it there are? It is
+        # the one engine that spawns an instance per property, each with
+        # solvers of its own, and `--ic3ia_max` caps how many run at
+        # once (default 2).
         cuts = (
           ("everything, as the harness runs it", []),
-          # MathSAT arrived with #1445, when the failures began.
-          ("Z3 for interpolation, not MathSAT", ["--smt_itp_solver", "Z3qe"]),
-          # Fewer domains: does the freeze need many of them?
-          ("only BMC and IND", ["--enable", "BMC", "--enable", "IND"]),
-          # IC3IA is what MathSAT made expensive.
-          ("everything but IC3IA", ["--enable", "BMC", "--enable", "IND",
-                                    "--enable", "IND2", "--enable", "IC3QE",
-                                    "--enable", "INVGEN", "--enable", "INVGENOS"]),
-          # Slicing off changes how much work the engines are given.
-          ("no node slicing", ["--slice_nodes", "off"]),
+          # IC3IA on its own. If this freezes, it is a whole minimal
+          # configuration and nothing else is needed to provoke it.
+          ("IC3IA alone", ["--enable", "IC3IA"]),
+          ("IC3IA alone, one instance",
+           ["--enable", "IC3IA", "--ic3ia_max", "1"]),
+          # Everything, but IC3IA held to a single instance: separates
+          # what IC3IA does from how many of it there are.
+          ("everything, IC3IA held to one instance", ["--ic3ia_max", "1"]),
+          ("everything, IC3IA allowed four", ["--ic3ia_max", "4"]),
         )
         for arm, extra in cuts:
             print(f"\n########## {arm} ##########", flush=True)
