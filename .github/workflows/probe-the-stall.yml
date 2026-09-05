@@ -252,32 +252,34 @@ jobs:
         #
         # Every arm keeps the shipped 1M minor heap, since that is where
         # the freezes are frequent.
-        # IC3IA is the ingredient: six engines without it run in 4s with
-        # no freeze at all, and putting it back gives 161s with forty.
-        # So is it what IC3IA does, or how many of it there are? It is
-        # the one engine that spawns an instance per property, each with
-        # solvers of its own, and `--ic3ia_max` caps how many run at
-        # once (default 2).
-        # The earliest freeze ever reported is at 5.6s, and most arrive
-        # after 8s. So an arm that finishes in 2 to 4 seconds cannot
-        # show one, and its zero says nothing -- which is what voided
-        # the reading that "everything but IC3IA" clears the freezes:
-        # it found its counterexample in 4s and stopped.
+        # Every arm so far has confounded engine count with run
+        # length: fewer engines settle the properties sooner, so they
+        # run for less time, so they see fewer freezes, and a zero
+        # cannot be told from a short run. That voided one headline
+        # already.
         #
-        # This model is not falsified quickly by anything, so every arm
-        # here runs to its timeout and every arm gets the same chance.
-        lus = os.path.join("tests", "regression", "success",
-                           "quant_finite_nested_binders.lus")
+        # This model settles nothing in any configuration -- each
+        # property is false about a million steps in -- so every arm
+        # below runs the full timeout and freeze counts are directly
+        # comparable for the first time.
+        #
+        # The question it can finally ask: does the freeze simply need
+        # more busy domains than the machine has cores? The runner has
+        # four. Nothing else varies.
+        lus = os.path.join("tests", "probe-nothing-settles.lus")
+        base = [kind2, "--timeout", "60", "--color", "false"]
+        budget = 150
         cuts = (
-          ("everything, as the harness runs it", []),
-          # Now a fair comparison: both of these run the full budget.
-          ("everything but IC3IA", ["--enable", "BMC", "--enable", "IND",
-                                    "--enable", "IND2", "--enable", "IC3QE",
-                                    "--enable", "INVGEN", "--enable", "INVGENOS"]),
-          ("only BMC and IND", ["--enable", "BMC", "--enable", "IND"]),
-          # IC3IA alone ran 87s with no freeze on the other model, so
-          # it is not sufficient on its own. Repeat it here.
-          ("IC3IA alone", ["--enable", "IC3IA"]),
+          ("1 engine  (BMC)", ["--enable", "BMC"]),
+          ("2 engines (BMC IND)", ["--enable", "BMC", "--enable", "IND"]),
+          ("3 engines (+IND2)", ["--enable", "BMC", "--enable", "IND",
+                                 "--enable", "IND2"]),
+          ("4 engines (+IC3QE)", ["--enable", "BMC", "--enable", "IND",
+                                  "--enable", "IND2", "--enable", "IC3QE"]),
+          ("6 engines (+INVGEN, INVGENOS)",
+           ["--enable", "BMC", "--enable", "IND", "--enable", "IND2",
+            "--enable", "IC3QE", "--enable", "INVGEN", "--enable", "INVGENOS"]),
+          ("everything, whatever that is", []),
         )
         for arm, extra in cuts:
             print(f"\n########## {arm} ##########", flush=True)

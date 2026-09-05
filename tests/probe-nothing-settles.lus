@@ -1,0 +1,180 @@
+-- A model no configuration settles inside the budget, so that every
+-- arm of an experiment runs for the same length of time.
+--
+-- Engine count and run length have been entangled in every arm so far:
+-- fewer engines settle the properties sooner, so they run for less
+-- time, so they see fewer freezes -- and a zero cannot be told from a
+-- short run. Here nothing settles anything: each property is false,
+-- but only after about a million steps, so bounded model checking
+-- cannot unroll to it inside the budget and induction cannot prove
+-- what is false. Every engine works and none finishes.
+--
+-- Sixteen of them, so that the engines have enough to be busy with.
+
+node prop0 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 500 then 0 else 1);
+  ok = (c < 1000000) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop1 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 501 then 0 else 1);
+  ok = (c < 1007919) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop2 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 502 then 0 else 1);
+  ok = (c < 1015838) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop3 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 503 then 0 else 1);
+  ok = (c < 1023757) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop4 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 504 then 0 else 1);
+  ok = (c < 1031676) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop5 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 505 then 0 else 1);
+  ok = (c < 1039595) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop6 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 506 then 0 else 1);
+  ok = (c < 1047514) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop7 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 507 then 0 else 1);
+  ok = (c < 1055433) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop8 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 508 then 0 else 1);
+  ok = (c < 1063352) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop9 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 509 then 0 else 1);
+  ok = (c < 1071271) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop10 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 510 then 0 else 1);
+  ok = (c < 1079190) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop11 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 511 then 0 else 1);
+  ok = (c < 1087109) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop12 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 512 then 0 else 1);
+  ok = (c < 1095028) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop13 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 513 then 0 else 1);
+  ok = (c < 1102947) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop14 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 514 then 0 else 1);
+  ok = (c < 1110866) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node prop15 (u : bool) returns (ok : bool);
+var c : int; d : int;
+let
+  c = 0 -> pre c + 1;
+  d = 0 -> pre d + 1 + (if pre c > 515 then 0 else 1);
+  ok = (c < 1118785) and (d >= c);
+  --%PROPERTY ok;
+tel
+
+node top (u : bool) returns (ok : bool);
+var o0 : bool; o1 : bool; o2 : bool; o3 : bool; o4 : bool; o5 : bool; o6 : bool; o7 : bool; o8 : bool; o9 : bool; o10 : bool; o11 : bool; o12 : bool; o13 : bool; o14 : bool; o15 : bool;
+let
+  o0 = prop0(u);
+  o1 = prop1(u);
+  o2 = prop2(u);
+  o3 = prop3(u);
+  o4 = prop4(u);
+  o5 = prop5(u);
+  o6 = prop6(u);
+  o7 = prop7(u);
+  o8 = prop8(u);
+  o9 = prop9(u);
+  o10 = prop10(u);
+  o11 = prop11(u);
+  o12 = prop12(u);
+  o13 = prop13(u);
+  o14 = prop14(u);
+  o15 = prop15(u);
+  ok = o0 and o1 and o2 and o3 and o4 and o5 and o6 and o7 and o8 and o9 and o10 and o11 and o12 and o13 and o14 and o15;
+  --%MAIN;
+  --%PROPERTY ok;
+tel
