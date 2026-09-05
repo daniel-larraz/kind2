@@ -99,6 +99,19 @@ jobs:
           sudo cp solver-bin/z3 solver-bin/mathsat /usr/local/bin/
         fi
 
+    # An observer that is not inside the process. Every one so far has
+    # been, and during a freeze every thread stops -- including one
+    # that only spins -- so "what is it doing while stopped" cannot be
+    # answered from within. `runtime_events` writes to a ring buffer
+    # readable from outside. `runtime_events_tools` (olly) is marked
+    # `available: os != "win32"`, hence this rather than that.
+    - name: Build the runtime events consumer
+      shell: bash
+      run: |
+        set -euo pipefail
+        opam exec -- ocamlfind ocamlopt -package runtime_events,unix -linkpkg \
+          tests/probe-pauses.ml -o probe-pauses.exe
+
     - name: Install uv
       uses: astral-sh/setup-uv@v7
 
@@ -126,10 +139,19 @@ jobs:
             t0 = time.time()
             env = dict(os.environ)
             env.update(extra_env or {})
+            # Runtime events on, into a directory of this run's own.
+            evdir = os.path.abspath(f"events-{arm.replace(' ','_')}-{n}")
+            os.makedirs(evdir, exist_ok=True)
+            env["OCAML_RUNTIME_EVENTS_START"] = "1"
+            env["OCAML_RUNTIME_EVENTS_DIR"] = evdir
             proc = Popen(base + (extra_args or []) + [lus],
                          stdout=PIPE, stderr=STDOUT, bufsize=1,
                          env=env,
                          universal_newlines=True, errors="replace")
+            consumer = Popen([os.path.join(".", "probe-pauses.exe"),
+                              evdir, str(proc.pid), "70"],
+                             stdout=PIPE, stderr=STDOUT,
+                             universal_newlines=True, errors="replace")
             lines, samples = [], []
 
             def pump():
@@ -143,7 +165,7 @@ jobs:
                     c0 = me.cpu_times() ; prev = c0.user + c0.system
                 except psutil.Error:
                     prev = 0.0
-                prev_kids = {}
+                prev_kids = {} ; prev_threads = {}
                 while proc.poll() is None:
                     time.sleep(1.0)
                     at = time.time() - t0
@@ -160,7 +182,20 @@ jobs:
                             kids += max(0.0, tot - prev_kids.get(k.pid, 0.0))
                         except psutil.Error:
                             pass
-                    samples.append((at, cur - prev, kids, len(cur_kids), threads))
+                    # How many threads are actually accruing CPU? The
+                    # process burns about four cores while frozen, and
+                    # four threads spinning is a very different picture
+                    # from twenty-seven making no progress.
+                    busy = 0
+                    try:
+                        for t in me.threads():
+                            tot = t.user_time + t.system_time
+                            if tot - prev_threads.get(t.id, tot) > 0.05:
+                                busy += 1
+                            prev_threads[t.id] = tot
+                    except psutil.Error:
+                        pass
+                    samples.append((at, cur - prev, kids, len(cur_kids), threads, busy))
                     prev, prev_kids = cur, cur_kids
             threading.Thread(target=sample, daemon=True).start()
 
@@ -185,6 +220,15 @@ jobs:
                   f"{'KILLED at budget' if killed else 'exit ' + str(proc.returncode)} after {dt:.0f}s",
                   flush=True)
 
+            # What the runtime was doing, seen from outside it.
+            try:
+                out, _ = consumer.communicate(timeout=40)
+            except subprocess.TimeoutExpired:
+                consumer.kill() ; out = "(consumer did not finish)"
+            for line in (out or "").splitlines():
+                if line.strip():
+                    print(f"    events | {line}", flush=True)
+
             # What the run itself said, and when.
             for at, line in lines:
                 if "PROBE" in line:
@@ -202,12 +246,13 @@ jobs:
                   flush=True)
             if samples:
                 worst = max(samples, key=lambda s: s[1])
-                print(f"    busiest second at {worst[0]:.0f}s: Kind 2 {worst[1]:.2f} cores "
-                      f"across {worst[4]} threads, {worst[3]} solvers {worst[2]:.2f} cores",
-                      flush=True)
+                print(f"    busiest sample at {worst[0]:.0f}s: Kind 2 {worst[1]:.2f} core-seconds "
+                      f"across {worst[4]} threads ({worst[5]} accruing), "
+                      f"{worst[3]} solvers {worst[2]:.2f}", flush=True)
                 tail = samples[-5:]
-                for at, k2, slv, nk, th in tail:
-                    print(f"    at {at:6.0f}s: Kind 2 {k2:.2f} cores, {nk} solvers {slv:.2f} cores, {th} threads",
+                for at, k2, slv, nk, th, busy in tail:
+                    print(f"    at {at:6.0f}s: Kind 2 {k2:.2f} core-seconds, {nk} solvers "
+                          f"{slv:.2f}, {th} threads of which {busy} accruing CPU",
                           flush=True)
 
         # Does the cost live in the collections themselves?
