@@ -315,30 +315,27 @@ let results_length results =
     proved, [Some true] if all properties were proved, and [Some false] if
     some were falsified. *)
 let results_is_safe results =
-  let rec check opt = function
-  | result :: node_results ->
-    (* If some were falsified, return false result *)
-    if result_is_some_falsified result then Some false
-    else (
-      match opt with
-      | None -> check opt node_results
-      | Some true ->
-        if result_is_all_proved result then
-          (* If system is still safe, propagate true result *)
-          check opt node_results
-        else 
-          (* In case of an unknown result, change result to None *)
-          check None node_results
-      | Some false -> assert false
-  )
-  | [] -> opt
+  (* The results of a system are its analyses, latest first. The latest
+     decides: a refinement analysis supersedes the abstract analyses before
+     it, whose falsifications were under an abstraction since refined away
+     and whose open properties may since have been proved. Only when the
+     latest analysis is itself incomplete does an earlier falsification
+     count, so that a run that disproved a property and then ran out of time
+     on the refinement reports the property rather than only the timeout. *)
+  let node_is_safe = function
+    | [] -> Some true
+    | latest :: earlier ->
+      if result_is_some_falsified latest then Some false
+      else if result_is_all_proved latest then Some true
+      else if List.exists result_is_some_falsified earlier then Some false
+      else None
   in
   Scope.Map.fold
-    (fun _ node_results opt' ->
-      match opt' with
-      (* If some were falsified, propagate false result *)
-      | Some false -> opt'
-      | _ -> check opt' node_results
+    (fun _ node_results acc ->
+      match acc, node_is_safe node_results with
+      | Some false, _ | _, Some false -> Some false
+      | None, _ | _, None -> None
+      | Some true, Some true -> Some true
     )
     results
     (Some true)
