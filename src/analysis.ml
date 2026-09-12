@@ -452,18 +452,22 @@ let pp_print_param_of_result pp_print_system_user_name fmt { param ; sys } =
           if is_abs then acc + 1 else acc
       ) abstraction_map 0
     in
+    (* The systems that are concrete now and were abstract in the previous
+       analysis. A system may have no entry in the previous map: the
+       subsystems of an analysis are those of the transition system it
+       builds, and a system that is only reached through a node the previous
+       analysis abstracted by its contract (an unrolling of a recursive
+       function called from its body, for instance) was not part of it. Such
+       a system was not refined, it is new. *)
     let refined =
       Scope.Map.fold (
         fun scope is_abs acc ->
-          if not is_abs then try (
-            if Scope.Map.find scope pre_abs_map then scope :: acc else acc
-          ) with Not_found -> (
-            Format.asprintf
-              "could not find system %a \
-              in abstraction map of previous result"
-              pp_print_system_user_name scope
-            |> failwith
-          ) else acc
+          if not is_abs then (
+            match Scope.Map.find_opt scope pre_abs_map with
+            | Some true -> scope :: acc
+            | Some false | None -> acc
+          )
+          else acc
       ) abstraction_map []
     in
     Format.fprintf
