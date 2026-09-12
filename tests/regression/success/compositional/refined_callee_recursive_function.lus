@@ -1,0 +1,35 @@
+-- The first analysis of Main abstracts Sub by its contract and cannot prove
+-- P; Sub was proved on its own, so a refinement analysis makes it concrete,
+-- and with it the unrolling of the recursive function Len that Sub's body
+-- calls. That unrolling was not a subsystem of the first analysis. Printing
+-- the result of the refinement analysis looked every concrete system up in
+-- the abstraction map of the first analysis and failed on it:
+-- "could not find system rec_N.Len in abstraction map of previous result".
+
+datatype List = Nil | Cons (head: int, tail: List);
+
+function rec Len (l: List) returns (n: int)
+con
+  decreases l;
+noc
+let
+  n = match l with | Nil : 0 | Cons(_, tl) : 1 + Len(tl) end;
+tel
+
+node Sub (l: List) returns (n: int; nonempty: bool)
+(*@contract
+  guarantee nonempty = Cons?(l);
+*)
+let
+  n = Len(l);
+  nonempty = Cons?(l);
+tel
+
+node Main (l: List) returns (ok: bool)
+var n: int; b: bool;
+let
+  (n, b) = Sub(l);
+  -- not provable from Sub's contract: needs Sub's body
+  ok = (n = Len(l));
+  check "P" ok;
+tel

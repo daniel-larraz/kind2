@@ -117,6 +117,16 @@ contractck_args = {"--enable": "CONTRACTCK"}
 # these tests notice the check losing the ability to turn a model down.
 contractck_declined_dir_name = "declined"
 
+# Tests under a directory with this name run in compositional and modular
+# mode: every node with a contract or properties is analyzed on its own, a
+# call is abstracted by the callee's contract, and an analysis that cannot
+# prove a property under that abstraction is followed by a refinement analysis
+# with the callee concrete. Assumption obligations, assumption histories and
+# refinement are only reached this way, so they are only tested here.
+# Refinement rests on the callee's own result, hence both flags.
+compositional_dir_name = "compositional"
+compositional_args = {"--compositional": "true", "--modular": "true"}
+
 # Where to write log files
 log_dir = Path("logs")
 
@@ -313,6 +323,9 @@ class LustreItem(pytest.Item):
         if self._is_contractck():
             args |= contractck_args
 
+        if self._is_compositional():
+            args |= compositional_args
+
         arg_list = list(itertools.chain.from_iterable(args.items()))
         return [kind2_bin, *arg_list, self.path]
 
@@ -330,6 +343,9 @@ class LustreItem(pytest.Item):
 
     def _is_contractck(self):
         return contractck_dir_name in self._regression_parts()
+
+    def _is_compositional(self):
+        return compositional_dir_name in self._regression_parts()
 
     def _ic3ia_declines(self):
         return self._is_ic3ia() and ic3ia_declined_dir_name in self._regression_parts()

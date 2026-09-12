@@ -1,0 +1,20 @@
+-- Main violates the assumption of N on one of its inputs. Analyzed on its
+-- own, N is safe; in the analysis of Main, the assumption obligation of the
+-- call is falsified, and so is the property that rested on N's guarantee.
+-- The run must report the violation: exit code 40.
+
+node N (x: int) returns (y: int)
+(*@contract
+  assume x >= 0;
+  guarantee y >= 0;
+*)
+let
+  y = x + 1;
+tel
+
+node Main (c: bool) returns ()
+var s: int;
+let
+  s = N(if c then 0 else -1);
+  check "NonNeg" s >= 0;
+tel
