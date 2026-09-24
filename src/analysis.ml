@@ -81,14 +81,27 @@ type info = {
       refinement. *)
 }
 
-(** Shrinks an abstraction map to the subsystems of a system. *)
-let shrink_info_to_sys ({ abstraction_map } as info) sys =
+(** Shrinks an abstraction map to the subsystems of a system. An unrolling
+    of a recursive function is a system of its own, whose scope is the
+    function's under a tag (see [LustreTransSys]): it stands for the
+    function, which is abstracted, or not, as the map says of the function.
+    A subsystem the map knows nothing of otherwise is left out. *)
+let shrink_info_to_sys ({ top ; abstraction_map } as info) sys =
   let abstraction_map =
     TransSys.fold_subsystems ?include_top:(Some false) (
       fun map sys ->
         let scope = TransSys.scope_of_trans_sys sys in
-        try Scope.Map.add scope (Scope.Map.find scope abstraction_map) map
-        with Not_found -> Scope.Map.add scope false map
+        match Scope.Map.find_opt scope abstraction_map with
+        | Some is_abstract -> Scope.Map.add scope is_abstract map
+        | None -> (
+          match scope with
+          | _ :: (_ :: _ as base) when not (Scope.equal base top) -> (
+            match Scope.Map.find_opt base abstraction_map with
+            | Some is_abstract -> Scope.Map.add base is_abstract map
+            | None -> map
+          )
+          | _ -> map
+        )
     ) Scope.Map.empty sys
   in
   { info with abstraction_map }
@@ -313,20 +326,37 @@ let results_length results =
 
 (** Returns [None] if no properties were falsified but some could not be
     proved, [Some true] if all properties were proved, and [Some false] if
-    some were falsified. *)
+    some were falsified.
+
+    A refinement supersedes the analyses it refines, the first analysis of
+    the system and the refinements between: a property those falsified under
+    an abstraction may be proved by it, and the final summary of the run
+    reports the last analysis only (see [Kind2Flow]). The analysis of the
+    modes of the system, if any, comes before the first analysis and is not
+    superseded. *)
 let results_is_safe results =
   let rec check opt = function
   | result :: node_results ->
     (* If some were falsified, return false result *)
     if result_is_some_falsified result then Some false
     else (
+      let node_results =
+        match result.param with
+        | Refinement _ ->
+          node_results |> List.filter (fun { param } ->
+            match param with
+            | First _ | Refinement _ -> false
+            | _ -> true
+          )
+        | _ -> node_results
+      in
       match opt with
       | None -> check opt node_results
       | Some true ->
         if result_is_all_proved result then
           (* If system is still safe, propagate true result *)
           check opt node_results
-        else 
+        else
           (* In case of an unknown result, change result to None *)
           check None node_results
       | Some false -> assert false
@@ -455,14 +485,14 @@ let pp_print_param_of_result pp_print_system_user_name fmt { param ; sys } =
     let refined =
       Scope.Map.fold (
         fun scope is_abs acc ->
-          if not is_abs then try (
-            if Scope.Map.find scope pre_abs_map then scope :: acc else acc
-          ) with Not_found -> (
-            Format.asprintf
-              "could not find system %a \
-              in abstraction map of previous result"
-              pp_print_system_user_name scope
-            |> failwith
+          if not is_abs then (
+            (* A system the previous result knows nothing of was not refined:
+               the abstraction map printed here is shrunk to the subsystems
+               of the transition system, which include the unrollings of the
+               recursive functions, whose scopes are fresh for each system *)
+            match Scope.Map.find_opt scope pre_abs_map with
+            | Some true -> scope :: acc
+            | Some false | None -> acc
           ) else acc
       ) abstraction_map []
     in

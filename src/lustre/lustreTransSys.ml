@@ -2686,10 +2686,10 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
           node
       in
 
+      let base_scope =
+        [I.string_of_ident false (NI.get_internal_name node_id |> I.of_hstring)]
+      in
       let scope, suffix =
-        let base_scope =
-          [I.string_of_ident false (NI.get_internal_name node_id |> I.of_hstring)]
-        in
         if N.is_recursive node && not (NI.Map.is_empty num_unrollings) then
           let node_num_id = get_node_num_id () in
           let rec_tag = get_rec_tag node_num_id in
@@ -2697,6 +2697,14 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
         else
           base_scope, ""
       in
+
+      (* Whether the node is abstracted by its contract in this analysis. The
+         abstraction map is keyed by the scope of the node, without the tag
+         of an unrolling: an instance of a recursive function that is called
+         from a recursive function carries a tag from its first unrolling on,
+         and looking it up by its tagged scope would take it for concrete
+         although its body was sliced away, leaving its outputs unconstrained *)
+      let is_abstract = A.param_scope_is_abstract analysis_param base_scope in
 
       (* Create a fresh state variable *)
       let mk_fresh_state_var
@@ -2928,7 +2936,7 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
           (* Filter assumptions for this node's assumptions *)
           let node_assumptions =
             (* No assumptions if abstract. *)
-            if A.param_scope_is_abstract analysis_param scope then
+            if is_abstract then
               Invs.empty ()
             else
               A.param_assumptions_of_scope analysis_param scope
@@ -2961,7 +2969,7 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
                   [ assumption_of_contract contract ],
                   (* Add property for completeness of modes if top node is
                     abstract. *)
-                  if A.param_scope_is_abstract analysis_param scope then
+                  if is_abstract then
                     List.rev_append
                       (mode_non_vacuity_checks scope contract)
                       (one_mode_active scope contract)
@@ -2983,13 +2991,15 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
                  An inconsistent transition system makes every property
                  vacuously valid, the guarantees themselves included.
 
-                 A transparent function is therefore verified from its body
-                 alone: its guarantees stay proof obligations at every
-                 instance, without the inductive hypothesis the contract
-                 abstraction provides, and one that needs induction over the
-                 recursion is better left to a lemma. *)
+                 A defined function (a transparent one, or, outside of
+                 compositional analyses, any recursive function; see
+                 [LustreFunDefs]) is therefore verified from its body alone:
+                 its guarantees stay proof obligations at every instance,
+                 without the inductive hypothesis the contract abstraction
+                 provides, and one that needs induction over the recursion is
+                 left to a compositional analysis, or to a lemma. *)
               let use_contract_as_abstraction =
-                (reached_limit || A.param_scope_is_abstract analysis_param scope)
+                (reached_limit || is_abstract)
                 && not is_defined
               in
 
@@ -3117,7 +3127,7 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
             *)
             let subrange_state_vars =
               let svars =
-                if A.param_scope_is_abstract analysis_param scope then
+                if is_abstract then
                   oracles
                 else
                   List.rev_append undefined_outputs oracles
@@ -3498,7 +3508,7 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
           let assumption =
             if
               not (NI.equal node_id top_name) &&
-              not (A.param_scope_is_abstract analysis_param scope) &&
+              not is_abstract &&
               valid_prop_terms <> []
             then
               match contract with
@@ -3808,7 +3818,8 @@ let uf_applied_warned = ref NI.Set.empty
    a call is only accepted for a function [LustreUserFunctions] finds a
    definition is to be built for, but the definition can still be left out here,
    for a reason that is only known once the nodes are compiled: the body is not
-   a total function of its inputs, or definitions are off. The symbol is then
+   a total function of its inputs, or the solver or logic does not take
+   definitions. The symbol is then
    uninterpreted and tied to the outputs of the instances of the function only,
    so under the quantifier it is an arbitrary function and a property that does
    hold of the function can be reported falsifiable. Say so. *)
@@ -3827,11 +3838,13 @@ let warn_undefined_uf_applications fun_defs nodes =
            hold of it may be reported falsifiable.@]"
           NI.pp_print_node_id_user_name call_node_id
           (if LustreFunDefs.enabled () then
-             "because its body is not a total function of its inputs that \
-              the solver can be given"
+             "because its body, or the body of a function of its recursive \
+              group, is not a total function of its inputs that the solver \
+              can be given, or a function of its group is abstracted by its \
+              contract"
            else
-             "because recursive functions are not being defined at the \
-              SMT level")
+             "because recursive functions are not defined at the SMT level \
+              with the current solver or logic")
       )
     )
   )
@@ -3896,10 +3909,11 @@ let trans_sys_of_nodes
 
   let nodes = N.nodes_of_subsystem subsystem' in
 
-  (* The SMT-level definitions of the recursive functions that have no
-     contract or are transparent (see [LustreFunDefs]) *)
+  (* The SMT-level definitions of the recursive functions whose contract does
+     not abstract them in this analysis (see [LustreFunDefs]) *)
   let fun_defs =
-    LustreFunDefs.compute ~adt_junk_ufs:globals.G.adt_junk_ufs nodes
+    LustreFunDefs.compute
+      ~adt_junk_ufs:globals.G.adt_junk_ufs analysis_param nodes
   in
 
   warn_undefined_uf_applications fun_defs nodes;
@@ -3933,28 +3947,35 @@ let trans_sys_of_nodes
     | A.Refinement (_,result) ->
       (* The analysis that's going to run is a refinement. *)
       TransSys.get_prop_status_all_nocands result.A.sys
-      |> List.iter (function
-        | _, P.PropUnknown -> (* Unknown is still unknown, do nothing. *)
-          ()
-        
-        | name, (P.PropKTrue _ as status) -> (* K-true is still k-true. *)
-          TransSys.set_prop_status trans_sys name status
-        
-        | name, P.PropInvariant cert -> (* Invariant is still invariant. *)
-          TransSys.set_prop_invariant trans_sys name cert;
-          (* Adding to invariants of the system. *)
-          let t = TransSys.get_prop_term trans_sys name in
-          TransSys.add_invariant trans_sys t cert false
-          |> ignore
-        
-        | name, P.PropFalse cex -> (
-          match P.length_of_cex cex with
-          | l when l > 1 -> (* False at k>0 is now (k-1)-true. *)
-            (* Minus 2 because l = k + 1. *)
-            TransSys.set_prop_status trans_sys name (P.PropKTrue (l-2))
-          | _ -> (* False at 0 is now unknown, do nothing. *)
+      |> List.iter (fun (name, status) ->
+        (* A system built for one engine may be sliced to a single property
+           (see [IC3IA.main]), and then lack the others: the status of a
+           property the system does not have has nothing to be carried over
+           to *)
+        try
+          match status with
+          | P.PropUnknown -> (* Unknown is still unknown, do nothing. *)
             ()
-        )
+
+          | P.PropKTrue _ -> (* K-true is still k-true. *)
+            TransSys.set_prop_status trans_sys name status
+
+          | P.PropInvariant cert -> (* Invariant is still invariant. *)
+            TransSys.set_prop_invariant trans_sys name cert;
+            (* Adding to invariants of the system. *)
+            let t = TransSys.get_prop_term trans_sys name in
+            TransSys.add_invariant trans_sys t cert false
+            |> ignore
+
+          | P.PropFalse cex -> (
+            match P.length_of_cex cex with
+            | l when l > 1 -> (* False at k>0 is now (k-1)-true. *)
+              (* Minus 2 because l = k + 1. *)
+              TransSys.set_prop_status trans_sys name (P.PropKTrue (l-2))
+            | _ -> (* False at 0 is now unknown, do nothing. *)
+              ()
+          )
+        with TransSys.PropertyNotFound _ -> ()
       )
     | _ -> ()
   ) ;
