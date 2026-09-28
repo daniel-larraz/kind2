@@ -233,6 +233,12 @@ type t =
         functional symbols, and its outputs with their functional symbols;
         empty if the system is not a cutoff *)
 
+    rec_cutoff_site : (Scope.t * Lib.position) option;
+    (** The call site the chain of recursive calls the cutoff ends was
+        entered through, the scope of its caller and its position, if the
+        system is a cutoff and the chain was not started by the top
+        system itself *)
+
     datatype_types : Type.t list;
     (** Recursive ADTs used anywhere in this system, in dependency order. *)
 
@@ -2065,6 +2071,7 @@ let mk_trans_sys
   ?(check_ufs = [])
   ?rec_cutoff
   ?(rec_cutoff_io = ([], []))
+  ?rec_cutoff_site
   scope
   instance_state_var
   init_flag_state_var
@@ -2357,6 +2364,7 @@ let mk_trans_sys
       check_ufs;
       rec_cutoff;
       rec_cutoff_io;
+      rec_cutoff_site;
       datatype_types;}
   in
 
@@ -2529,6 +2537,15 @@ let get_state_var_bounds { state_var_bounds } = state_var_bounds
 (* The cutoffs of the unrollings of the recursive functions of the system,
    each with the function and the term stating, at offset zero, that the
    chain of calls from the top system down to the cutoff is executed *)
+type cutoff = Scope.t * (Scope.t * Lib.position) option
+
+let equal_cutoff (f, s) (g, t) =
+  Scope.equal f g
+  && (match s, t with
+      | None, None -> true
+      | Some (c, p), Some (d, q) -> Scope.equal c d && Lib.equal_pos p q
+      | _ -> false)
+
 let cutoff_terms t =
   fold_subsystem_instances
     (fun sub chain acc ->
@@ -2551,7 +2568,7 @@ let cutoff_terms t =
              Term.t_true
              chain
          in
-         (f, reached) :: acc)
+         ((f, sub.rec_cutoff_site), reached) :: acc)
     t
 
 (* The recursive functions with a cutoff in the system that the supervisor
@@ -2595,7 +2612,7 @@ let cutoff_instances t =
              chain
          in
          let inputs, outputs = sub.rec_cutoff_io in
-         (f, active, List.map lift_sv inputs,
+         ((f, sub.rec_cutoff_site), active, List.map lift_sv inputs,
           List.map (fun (sv, uf) -> lift_sv sv, uf) outputs)
          :: acc)
     t
@@ -2603,7 +2620,7 @@ let cutoff_instances t =
 (* The recursive functions with a cutoff in the system *)
 let cutoff_functions t =
   List.fold_left
-    (fun acc (f, _) -> if List.exists (Scope.equal f) acc then acc else f :: acc)
+    (fun acc ((f, _), _) -> if List.exists (Scope.equal f) acc then acc else f :: acc)
     [] (cutoff_terms t)
 
 (* The instances of the recursive function of the given scope in the
@@ -2644,9 +2661,9 @@ let cutoffs_reached t cex =
       | exception _ -> false
     in
     List.fold_left
-      (fun acc (f, term) ->
-         if List.exists (Scope.equal f) acc then acc
-         else if List.exists (reached_at term) steps then f :: acc
+      (fun acc (cutoff, term) ->
+         if List.exists (equal_cutoff cutoff) acc then acc
+         else if List.exists (reached_at term) steps then cutoff :: acc
          else acc)
       [] cutoffs
 

@@ -18,9 +18,12 @@
 
 module SSet = Set.Make (String)
 
-(* The functions whose cutoff a counterexample reached, and that are below
-   the limit *)
-let requested_functions = ref Scope.Set.empty
+(* The cutoffs a counterexample reached that are below the limit: the
+   chains of recursive calls to unroll further, each identified by the
+   function and the call site it was entered through *)
+let requested_cutoffs : TransSys.cutoff list ref = ref []
+
+let add_cutoff c l = if List.exists (TransSys.equal_cutoff c) l then l else c :: l
 
 (* The instances of the recursive functions in the system the engines run
    on, and in the one before it: how fast the unrollings multiply them *)
@@ -35,10 +38,19 @@ let exhausted = ref SSet.empty
    that were reported *)
 let reported = ref Scope.Set.empty
 
-let depth param f =
-  match Analysis.param_unrollings_of_scope param f with
+(* The number of unrollings of the chain of a cutoff: that of its call
+   site, if the analysis sets one, or else that of its function, or once *)
+let depth param (f, site) =
+  match
+    match site with
+    | Some site -> Analysis.param_unrollings_of_site param site
+    | None -> None
+  with
   | Some n -> n
-  | None -> 1
+  | None ->
+    match Analysis.param_unrollings_of_scope param f with
+    | Some n -> n
+    | None -> 1
 
 (* The time given to the solver for a query, in seconds *)
 let query_timeout = 2
@@ -92,11 +104,29 @@ end
 module Facts = Hashtbl.Make (FactKey)
 let facts : Term.t Facts.t = Facts.create 64
 
+(* The literal each fact and each instantiated equation of the round is
+   asserted under, in the round's solver: they are assumed in a query, and
+   the ones in an unsat core are those that refute the counterexample *)
+let literals : Term.t Facts.t = Facts.create 64
+
+(* The cutoffs each call of the round comes from: the instances past the
+   unrollings that execute it, or the call whose equation applies it *)
+let origins : TransSys.cutoff list Facts.t = Facts.create 64
+
+let add_origins call cutoffs =
+  let known = try Facts.find origins call with Not_found -> [] in
+  Facts.replace origins call
+    (List.fold_left
+       (fun acc c ->
+          if List.exists (TransSys.equal_cutoff c) acc then acc else c :: acc)
+       known cutoffs)
+
 (* The calls of the round whose function's defining equation is
    instantiated at their arguments in the round's solver, and the
    applications of the defined functions in those instances *)
 let instantiated : Term.t Facts.t = Facts.create 16
-let pending : (UfSymbol.t * Term.t list) list ref = ref []
+let pending : (UfSymbol.t * Term.t list * (UfSymbol.t * Term.t list)) list ref =
+  ref []
 
 (* The applications of the defined symbols in a term *)
 let applications definitions term =
@@ -117,6 +147,15 @@ let applications definitions term =
   !acc
 
 let fact_term (uf, args) value = Term.mk_eq [ Term.mk_uf uf args ; value ]
+
+(* Asserts a fact about a call, or its instantiated equation, in the solver
+   under a fresh literal, which is returned *)
+let assert_guarded solver term =
+  let lit = UfSymbol.mk_fresh_uf_symbol [] Type.t_bool in
+  SMTSolver.declare_fun solver lit ;
+  let lit = Term.mk_uf lit [] in
+  SMTSolver.assert_term solver (Term.mk_implies [ lit ; term ]) ;
+  lit
 
 (* The solver the functions are evaluated with: their definitions, and
    nothing of the system but its sorts. Recursive definitions in the
@@ -189,8 +228,6 @@ let evaluate sys uf args =
     let result = Term.mk_uf result [] in
     SMTSolver.assert_term solver (Term.mk_eq [ result ; Term.mk_uf uf args ]) ;
     let value =
-      (* An evaluation the solver gives up on in time is not a reason to
-         give up on the solver *)
       try
         SMTSolver.check_sat_and_get_term_values solver
           (fun _ values ->
@@ -199,7 +236,7 @@ let evaluate sys uf args =
              | None -> `Unknown)
           (fun _ -> `Unknown)
           [ result ]
-      with SMTSolver.Unknown -> `Unknown
+      with SMTSolver.Unknown -> `Gave_up
     in
     (* The value must be the only one: a definition may apply symbols that
        are not defined, the value of a call whose termination checks fail,
@@ -215,8 +252,15 @@ let evaluate sys uf args =
           | exception SMTSolver.Unknown -> `Unknown )
       | other -> other
     in
-    SMTSolver.pop solver ;
-    value
+    match value with
+    | `Gave_up ->
+      (* Z3 does not recover from an evaluation it gave up on: every later
+         one, however easy, comes back unknown. The solver is replaced. *)
+      drop_eval_solver () ;
+      `Unknown
+    | (`Value _ | `Not_unique | `Unknown) as value ->
+      SMTSolver.pop solver ;
+      value
   with
   | SMTSolver.Timeout -> eval_solver := None ; `Unknown
   | SMTSolver.Unknown -> drop_eval_solver () ; `Unknown
@@ -238,7 +282,8 @@ let solver_for sys k =
     drop_round_solver () ;
     let logic = TransSys.get_logic sys in
     let solver =
-      SMTSolver.create_instance ~produce_models:true logic (Flags.Smt.solver ())
+      SMTSolver.create_instance ~produce_models:true
+        ~produce_unsat_assumptions:true logic (Flags.Smt.solver ())
     in
     let kept = set_per_query_timeout solver in
     let solver =
@@ -246,7 +291,7 @@ let solver_for sys k =
       else (
         SMTSolver.delete_instance solver ;
         SMTSolver.create_instance ~timeout:query_timeout ~produce_models:true
-          logic (Flags.Smt.solver ()))
+          ~produce_unsat_assumptions:true logic (Flags.Smt.solver ()))
     in
     TransSys.define_and_declare_of_bounds ~with_check_ufs:true sys
       (SMTSolver.define_fun solver)
@@ -258,11 +303,16 @@ let solver_for sys k =
     TransSys.init_of_bound (Some (SMTSolver.declare_fun solver)) sys Numeral.zero
     |> SMTSolver.assert_term solver ;
     (* The values of the functions known in the round, and the defining
-       equations instantiated in it *)
+       equations instantiated in it, each under a literal of its own *)
+    Facts.reset literals ;
     Facts.iter
-      (fun call value -> SMTSolver.assert_term solver (fact_term call value))
+      (fun call value ->
+         Facts.replace literals call
+           (assert_guarded solver (fact_term call value)))
       facts ;
-    Facts.iter (fun _ equation -> SMTSolver.assert_term solver equation)
+    Facts.iter
+      (fun call equation ->
+         Facts.replace literals call (assert_guarded solver equation))
       instantiated ;
     let rs = { solver ; declared_to = k ; kept } in
     round_solver := Some rs ;
@@ -274,8 +324,10 @@ let reset () =
   drop_eval_solver () ;
   Facts.reset facts ;
   Facts.reset instantiated ;
+  Facts.reset literals ;
+  Facts.reset origins ;
   pending := [] ;
-  requested_functions := Scope.Set.empty ;
+  requested_cutoffs := [] ;
   exhausted := SSet.empty ;
   reported := Scope.Set.empty ;
   current_count := 0 ;
@@ -287,8 +339,10 @@ let start_round sys =
   drop_eval_solver () ;
   Facts.reset facts ;
   Facts.reset instantiated ;
+  Facts.reset literals ;
+  Facts.reset origins ;
   pending := [] ;
-  requested_functions := Scope.Set.empty ;
+  requested_cutoffs := [] ;
   previous_count := !current_count ;
   current_count :=
     List.fold_left
@@ -310,25 +364,36 @@ let request param prop reached =
   let too_many = too_many_instances () in
   let below, at_limit =
     List.partition
-      (fun f -> depth param f < limit && not too_many)
+      (fun c -> depth param c < limit && not too_many)
       reached
   in
   match below with
   | [] ->
     exhausted := SSet.add prop !exhausted ;
-    let unreported =
-      List.filter (fun f -> not (Scope.Set.mem f !reported)) at_limit
+    (* Reported by function, once *)
+    let functions cutoffs =
+      List.fold_left
+        (fun acc (f, _) ->
+           if List.exists (Scope.equal f) acc || Scope.Set.mem f !reported
+           then acc else f :: acc)
+        [] cutoffs
+    in
+    let too_many_fs =
+      functions (List.filter (fun c -> depth param c < limit) at_limit)
+    in
+    let at_limit_fs =
+      functions (List.filter (fun c -> depth param c >= limit) at_limit)
+      |> List.filter (fun f -> not (List.exists (Scope.equal f) too_many_fs))
     in
     reported :=
-      List.fold_left (fun s f -> Scope.Set.add f s) !reported unreported ;
-    `At_limit
-      (List.partition (fun f -> depth param f < limit) unreported)
+      List.fold_left (fun s f -> Scope.Set.add f s) !reported
+        (too_many_fs @ at_limit_fs) ;
+    `At_limit (too_many_fs, at_limit_fs)
   | _ ->
-    requested_functions :=
-      List.fold_left (fun s f -> Scope.Set.add f s) !requested_functions below ;
+    requested_cutoffs := List.fold_right add_cutoff below !requested_cutoffs ;
     `Requested
 
-let requested () = Scope.Set.elements !requested_functions
+let requested () = !requested_cutoffs
 
 (* The number of times the calls past the unrollings a model uses are
    evaluated before the counterexample is given up on as undecided *)
@@ -369,19 +434,30 @@ let genuine sys prop cex =
               Term.bump_state i active :: List.map (fun sv -> var_at sv i) inputs)
            instances)
       steps
-    @ List.concat_map (fun (_, args) -> args) !pending
+    @ List.concat_map (fun (_, args, _) -> args) !pending
   in
-  (* The calls the model executes that are not facts yet, or [None] if one
-     of them cannot be evaluated: those of the instances past the
-     unrollings, and those the instantiated definitions apply *)
+  (* The calls of this counterexample that could not be evaluated: they are
+     left free, which may still refute the counterexample through the
+     other calls, but never makes it genuine *)
+  let unevaluable = Facts.create 8 in
+  let known call =
+    Facts.mem facts call || Facts.mem instantiated call
+    || Facts.mem unevaluable call
+  in
+  (* The calls the model executes, with the cutoffs they come from, or
+     [None] if one of them cannot be evaluated: those of the instances past
+     the unrollings, and those the instantiated equations apply. Their
+     origins are recorded, and those that are not facts yet returned. *)
   let new_calls values =
     let value_of t = List.find_opt (fun (t', _) -> Term.equal t t') values in
-    let known call =
-      Facts.mem facts call || Facts.mem instantiated call
+    let add calls call cutoffs =
+      add_origins call cutoffs ;
+      if known call || List.exists (FactKey.equal call) calls then calls
+      else call :: calls
     in
     let from_pending =
       List.fold_left
-        (fun acc (uf, args) ->
+        (fun acc (uf, args, from) ->
            match acc with
            | None -> None
            | Some calls ->
@@ -389,15 +465,14 @@ let genuine sys prop cex =
              if List.exists Option.is_none args then None
              else
                let call = (uf, List.map (fun a -> snd (Option.get a)) args) in
-               if known call || List.exists (FactKey.equal call) calls
-               then Some calls
-               else Some (call :: calls))
+               let cutoffs = try Facts.find origins from with Not_found -> [] in
+               Some (add calls call cutoffs))
         (Some []) !pending
     in
     List.fold_left
       (fun acc i ->
          List.fold_left
-           (fun acc (f, active, inputs, outputs) ->
+           (fun acc ((f, _) as cutoff, active, inputs, outputs) ->
               match acc with
               | None -> None
               | Some calls ->
@@ -418,12 +493,7 @@ let genuine sys prop cex =
                       let args = List.map Option.get args in
                       Some
                         (List.fold_left
-                           (fun calls (_, uf) ->
-                              let call = (uf, args) in
-                              if known call
-                              || List.exists (FactKey.equal call) calls
-                              then calls
-                              else call :: calls)
+                           (fun calls (_, uf) -> add calls (uf, args) [ cutoff ])
                            calls outputs)
                 | _ -> Some calls)
            acc instances)
@@ -435,13 +505,16 @@ let genuine sys prop cex =
      the rest of the query; the calls the equation applies are then
      executed calls in turn *)
   let settle ((uf, args) as call) =
+    let guard term =
+      match !round_solver with
+      | Some { solver } -> Facts.replace literals call (assert_guarded solver term)
+      | None -> ()
+    in
     match evaluate sys uf args with
-    | `Unknown -> false
+    | `Unknown -> Facts.replace unevaluable call () ; true
     | `Value value ->
       Facts.replace facts call value ;
-      ( match !round_solver with
-        | Some { solver } -> SMTSolver.assert_term solver (fact_term call value)
-        | None -> () ) ;
+      guard (fact_term call value) ;
       true
     | `Not_unique ->
       match
@@ -453,11 +526,26 @@ let genuine sys prop cex =
         let instance = Term.apply_subst (List.combine formals args) body in
         let equation = Term.mk_eq [ Term.mk_uf uf args ; instance ] in
         Facts.replace instantiated call equation ;
-        ( match !round_solver with
-          | Some { solver } -> SMTSolver.assert_term solver equation
-          | None -> () ) ;
-        pending := applications definitions instance @ !pending ;
+        guard equation ;
+        pending :=
+          List.map (fun (uf', args') -> (uf', args', call))
+            (applications definitions instance)
+          @ !pending ;
         true
+  in
+  (* The cutoffs whose calls refute the counterexample: the origins of the
+     facts in the unsat core *)
+  let refuting core =
+    Facts.fold
+      (fun call lit acc ->
+         if List.exists (Term.equal lit) core then
+           List.fold_left
+             (fun acc c ->
+                if List.exists (TransSys.equal_cutoff c) acc then acc else c :: acc)
+             acc
+             (try Facts.find origins call with Not_found -> [])
+         else acc)
+      literals []
   in
   let rec loop n =
     if n = 0 then `Undecided else
@@ -484,54 +572,59 @@ let genuine sys prop cex =
     |> Term.bump_state k
     |> Term.mk_not
     |> SMTSolver.assert_term solver ;
+    let lits = Facts.fold (fun _ lit acc -> lit :: acc) literals [] in
     let outcome =
       (* A query the solver gives up on in time leaves the solver as it
          was, for the next counterexample of the round, which saves
          sending it the whole system again *)
       try
-        SMTSolver.check_sat_and_get_term_values solver
-          (fun _ values -> `Sat values)
-          (fun _ -> `Unsat)
-          observed
+        match lits with
+        | [] ->
+          (* No fact yet: a refutation owes nothing to the calls *)
+          SMTSolver.check_sat_and_get_term_values solver
+            (fun _ values -> `Sat values)
+            (fun _ -> `Unsat [])
+            observed
+        | _ ->
+          SMTSolver.check_sat_assuming_and_get_term_values solver
+            (fun _ values -> `Sat values)
+            (fun solver -> `Unsat (SMTSolver.get_unsat_core_lits solver))
+            lits observed
       with SMTSolver.Unknown -> `Unknown
     in
     if kept then SMTSolver.pop solver else drop_round_solver () ;
     match outcome with
     | `Unknown -> `Undecided
-    | `Unsat -> `Result false
+    | `Unsat core -> `Spurious (refuting core)
     | `Sat values ->
       match (try new_calls values with Exit -> None) with
       | None -> `Undecided
-      | Some [] -> `Result true
+      | Some [] ->
+        if Facts.length unevaluable = 0 then `Genuine else `Undecided
       | Some calls ->
         if List.for_all settle calls then loop (n - 1) else `Undecided
   in
-  let result =
-    try loop max_evaluation_rounds with
-    | SMTSolver.Timeout ->
-      (* The solver was killed on its timeout, the instance is gone *)
-      round_solver := None ;
-      `Undecided
-    | SMTSolver.Unknown -> drop_round_solver () ; `Undecided
-    | Failure _ | Unix.Unix_error _ | End_of_file | Sys_error _
-    | SMTSolver.Exiting as e ->
-      (* A solver that stops on its own timeout answers in its own way,
-         which reads as a failure: the query is undecided, as well, and the
-         solver is not to be trusted with the next one. Any other
-         exception, the wall clock timeout first of all, is not about the
-         query and goes on unwinding. *)
-      KEvent.log L_debug
-        "Query on the counterexample to %s failed: %s" prop
-        (Printexc.to_string e) ;
-      drop_round_solver () ;
-      `Undecided
-    | e ->
-      drop_round_solver () ;
-      raise e
-  in
-  match result with
-  | `Result r -> r
-  | `Undecided -> false
+  try loop max_evaluation_rounds with
+  | SMTSolver.Timeout ->
+    (* The solver was killed on its timeout, the instance is gone *)
+    round_solver := None ;
+    `Undecided
+  | SMTSolver.Unknown -> drop_round_solver () ; `Undecided
+  | Failure _ | Unix.Unix_error _ | End_of_file | Sys_error _
+  | SMTSolver.Exiting as e ->
+    (* A solver that stops on its own timeout answers in its own way,
+       which reads as a failure: the query is undecided, as well, and the
+       solver is not to be trusted with the next one. Any other
+       exception, the wall clock timeout first of all, is not about the
+       query and goes on unwinding. *)
+    KEvent.log L_debug
+      "Query on the counterexample to %s failed: %s" prop
+      (Printexc.to_string e) ;
+    drop_round_solver () ;
+    `Undecided
+  | e ->
+    drop_round_solver () ;
+    raise e
 
 (* The recursive functions the counterexample to the property may be
    spurious for: a cutoff of theirs is reached, and the counterexample is
@@ -547,7 +640,9 @@ let suspect sys prop cex =
        is a solver process to start: a round that falsifies a hundred
        properties on their first counterexample would otherwise put a
        hundred queries to as many solvers before it ends. *)
-    if List.for_all (fun f -> Scope.Set.mem f !requested_functions) reached
+    if List.for_all
+        (fun c -> List.exists (TransSys.equal_cutoff c) !requested_cutoffs)
+        reached
     then reached
     (* A function the supervisor has no definition of, because it is not
        definable or the solver does not take recursive definitions, cannot
@@ -555,18 +650,30 @@ let suspect sys prop cex =
        unrollings is never known to be genuine *)
     else
       let evaluable = TransSys.evaluable_functions sys in
-      if not (List.for_all (fun f -> List.exists (Scope.equal f) evaluable) reached)
+      if not
+          (List.for_all
+             (fun (f, _) -> List.exists (Scope.equal f) evaluable) reached)
       then reached
       else if !round_time > round_budget then reached
       else (
         let started = Unix.gettimeofday () in
-        let genuine =
+        let outcome =
           Fun.protect
             ~finally:(fun () ->
               round_time := !round_time +. (Unix.gettimeofday () -. started))
             (fun () -> genuine sys prop cex)
         in
-        if genuine then [] else reached)
+        match outcome with
+        | `Genuine -> []
+        (* Only the chains whose calls refute the counterexample need to be
+           unrolled further; if the core names none, which happens when the
+           violation needs no call at all to be refuted, all of them *)
+        | `Spurious (_ :: _ as refuting) ->
+          List.filter
+            (fun c -> List.exists (TransSys.equal_cutoff c) refuting)
+            reached
+          |> (function [] -> reached | l -> l)
+        | `Spurious [] | `Undecided -> reached)
 
 let is_exhausted prop = SSet.mem prop !exhausted
 

@@ -62,6 +62,16 @@ val assumptions_fold : (
   'a -> Scope.t -> Invs.t -> 'a
 ) -> 'a -> assumptions -> 'a
 
+(** A call to a recursive function from outside its recursive group: the
+    scope of the caller and the position of the call. The chain of
+    recursive calls it starts is unrolled as a whole, as many times as the
+    analysis says of the call site (see [info]). *)
+type call_site = Scope.t * Lib.position
+
+module CallSite : Map.OrderedType with type t = call_site
+
+module CallSiteMap : Map.S with type key = call_site
+
 (** Information for the creation of a transition system *)
 type info = {
   top : Scope.t ;
@@ -85,6 +95,13 @@ type info = {
       an unrolling (see {!Strategy}); in any other analysis they are left
       unconstrained, and an unrolling is added when a counterexample
       reaches one (see {!RecUnrolling}). *)
+
+  site_unrollings : int CallSiteMap.t ;
+  (** The number of unrollings of the chains of recursive calls entered
+      through a call site, which take precedence over [unrollings] for the
+      function the site calls: outside of compositional analyses, the
+      chain a counterexample goes through is unrolled further, and the
+      other calls of the function are not (see {!RecUnrolling}). *)
 
   (* refinement_of : result option *)
   (* Result of the previous analysis of the top system if this analysis is a
@@ -157,6 +174,10 @@ val param_scope_is_abstract : param -> Scope.t -> bool
 (** The number of unrollings of a recursive function in the analysis of a
     [param], if a refinement set one (see [info]) *)
 val param_unrollings_of_scope : param -> Scope.t -> int option
+
+(** The number of unrollings of the chain of recursive calls entered through
+    a call site, if the analysis sets one *)
+val param_unrollings_of_site : param -> call_site -> int option
 
 (** Return [true] if no system is flagged abstract
     in the [abstraction_map] of a [param]. *)

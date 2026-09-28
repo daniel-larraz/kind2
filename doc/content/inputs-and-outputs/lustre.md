@@ -923,7 +923,11 @@ Otherwise, or if the evaluation takes too long, Kind 2 unrolls the
 function once more, from one unrolling up to the limit set with
 `--rec_unrollings` (10 by default), and runs its engines again on the new
 system, keeping what they had established; this is not an analysis of its
-own, and it stops as soon as the arguments of the recursive calls are
+own. The unrolling is per call site: it deepens the chain of recursive calls
+started by the call of the function the counterexample relies on (the calls
+whose values refute it), and leaves the other calls of the function as they
+are, so that a call on concrete data can be unrolled deep while a call on
+symbolic data is not. It stops as soon as the arguments of the recursive calls are
 exhausted, as for `Fact(4)`, which is proved equal to 24 after four
 unrollings. A property whose counterexample still reaches such a call at the
 limit is left unknown, and Kind 2 says so. That is the fate of a property that

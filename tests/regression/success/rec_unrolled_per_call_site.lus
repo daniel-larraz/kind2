@@ -1,0 +1,22 @@
+-- Fib makes two recursive calls, so every unrolling doubles its instances.
+-- The concrete call needs eight unrollings; the three symbolic calls need
+-- none, as their properties do not depend on the calls past the
+-- unrollings. The chain of recursive calls is unrolled per call site, and
+-- only the one the counterexamples rely on, the concrete call's, grows:
+-- unrolling every call of Fib together would exceed the bound on instances
+-- (--rec_instances) long before the eighth unrolling.
+function rec Fib (n: int) returns (f: int);
+con
+  decreases n;
+noc
+let
+  f = when n <= 1 then n else Fib(n - 1) + Fib(n - 2);
+tel
+
+node main (a, b, c: int) returns ();
+let
+  check "concrete" Fib(7) = 13;
+  check "a" Fib(a) = Fib(a);
+  check "b" a = b => Fib(a) = Fib(b);
+  check "c" Fib(c) + 0 = Fib(c);
+tel

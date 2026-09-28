@@ -31,8 +31,10 @@
     This module keeps, for the analysis under way, the functions to unroll
     further and the properties given up on. *)
 
-(** The number of unrollings of a recursive function in the analysis *)
-val depth : Analysis.param -> Scope.t -> int
+(** The number of unrollings of the chain of recursive calls of a cutoff in
+    the analysis: that of its call site if the analysis sets one, or else
+    that of its function *)
+val depth : Analysis.param -> TransSys.cutoff -> int
 
 (** Forget the requests and the properties given up on: a new system is
     analyzed *)
@@ -51,11 +53,11 @@ val start_round : TransSys.t -> unit
     with [--rec_instances], then those at the limit set with
     [--rec_unrollings]. *)
 val request :
-  Analysis.param -> string -> Scope.t list ->
+  Analysis.param -> string -> TransSys.cutoff list ->
   [ `Requested | `At_limit of Scope.t list * Scope.t list ]
 
-(** The functions requested to be unrolled further *)
-val requested : unit -> Scope.t list
+(** The chains requested to be unrolled further *)
+val requested : unit -> TransSys.cutoff list
 
 (** The recursive functions the counterexample to the property may be
     spurious for: a cutoff of theirs is reached by the counterexample, and
@@ -71,7 +73,8 @@ val requested : unit -> Scope.t list
     decided in time, or a round whose checks have taken their budget, leave
     the counterexample suspect. The supervisor is meant to call this. *)
 val suspect :
-  TransSys.t -> string -> (StateVar.t * Model.value list) list -> Scope.t list
+  TransSys.t -> string -> (StateVar.t * Model.value list) list ->
+  TransSys.cutoff list
 
 (** Whether the property was given up on *)
 val is_exhausted : string -> bool

@@ -51,20 +51,42 @@ let default_settings = {
   slice_to_prop = None
 }
 
+(* The call to a recursive function, from outside its recursive group,
+   that started the chain of recursive calls an instance belongs to: the
+   caller and the position of the call; none for an instance that is not
+   of a recursive function, or whose chain the top system started. The
+   chain is unrolled as many times as the analysis says of the call site,
+   if it says anything (see [Analysis.info.site_unrollings]). *)
+type site = (NI.t * Lib.position) option
+
+let compare_site s1 s2 =
+  match s1, s2 with
+  | None, None -> 0
+  | None, Some _ -> -1
+  | Some _, None -> 1
+  | Some (n1, p1), Some (n2, p2) ->
+    let c = NodeId.compare n1 n2 in
+    if c <> 0 then c else Lib.compare_pos p1 p2
+
 module NodeInstance = struct
   
-  type t = NI.t * int NI.Map.t
+  (* A node, the number of unrollings of each recursive function along the
+     chain of calls down to it, and the call site of that chain *)
+  type t = NI.t * int NI.Map.t * site
 
-  let equal (node_id1, num_unrollings1) (node_id2, num_unrollings2) =
-    (NodeId.equal node_id1 node_id2) &&
-    (NI.Map.equal Int.equal num_unrollings1 num_unrollings2)
-
-  let compare (node_id1, num_unrollings1) (node_id2, num_unrollings2) =
+  let compare (node_id1, num_unrollings1, site1) (node_id2, num_unrollings2, site2) =
     let cmp_id = NodeId.compare node_id1 node_id2 in
     if cmp_id <> 0 then cmp_id
-    else NI.Map.compare Int.compare num_unrollings1 num_unrollings2
+    else
+      let c = NI.Map.compare Int.compare num_unrollings1 num_unrollings2 in
+      if c <> 0 then c else compare_site site1 site2
+
+  let equal i1 i2 = compare i1 i2 = 0
 
 end
+
+(* The node instance of each call of a node, by call identifier *)
+module CallMap = Map.Make (Int)
 
 module NodeInstanceMap = Map.Make(NodeInstance)
 
@@ -1242,12 +1264,12 @@ let rec constraints_of_node_calls
 
     (* Get generated transition system of callee *)
     let { trans_sys } as node_def =
-      let num_unrollings =
-        match NI.Map.find_opt call_node_id num_unrollings_map with
+      let num_unrollings, site =
+        match CallMap.find_opt call_id num_unrollings_map with
         | Some nu -> nu
         | None -> assert false
       in
-      try NodeInstanceMap.find (call_node_id, num_unrollings) trans_sys_defs
+      try NodeInstanceMap.find (call_node_id, num_unrollings, site) trans_sys_defs
       (* Fail if transition system for node not found *)
       with Not_found -> assert false
     in
@@ -1329,12 +1351,12 @@ let rec constraints_of_node_calls
 
     (* Get generated transition system of callee *)
     let { trans_sys } as node_def =
-      let num_unrollings =
-        match NI.Map.find_opt call_node_id num_unrollings_map with
+      let num_unrollings, site =
+        match CallMap.find_opt call_id num_unrollings_map with
         | Some nu -> nu
         | None -> assert false
       in
-      try NodeInstanceMap.find (call_node_id, num_unrollings) trans_sys_defs
+      try NodeInstanceMap.find (call_node_id, num_unrollings, site) trans_sys_defs
       (* Fail if transition system for node not found *)
       with Not_found -> assert false
     in
@@ -1427,15 +1449,15 @@ let rec constraints_of_node_calls
     (* Get generated transition system of callee *)
     let { node = { N.inputs; }; trans_sys; init_flags } as node_def =
 
-      let num_unrollings =
-        match NI.Map.find_opt call_node_id num_unrollings_map with
+      let num_unrollings, site =
+        match CallMap.find_opt call_id num_unrollings_map with
         | Some nu -> nu
         | None -> assert false
       in
 
       try 
 
-      NodeInstanceMap.find (call_node_id, num_unrollings) trans_sys_defs
+      NodeInstanceMap.find (call_node_id, num_unrollings, site) trans_sys_defs
 
       (* Fail if transition system for node not found *)
       with Not_found -> assert false
@@ -2645,7 +2667,7 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
   | [] -> trans_sys_defs
 
   (* Create transition system for top node *)
-  | ((node_id, num_unrollings) as node_instance) :: tl ->
+  | ((node_id, num_unrollings, site) as node_instance) :: tl ->
 
     (* Transition system for node has been created and added to
        accumulator meanwhile? *)
@@ -2682,18 +2704,26 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
          along a chain of recursive calls before a call is abstracted by its
          contract (or, for a defined function, left to its definition): once,
          unless a refinement set more (see [Analysis.info.unrollings]) *)
-      let unrolling_depth node_id =
-        let scope =
+      let unrolling_depth node_id site =
+        let scope_of node_id =
           [I.string_of_ident false (NI.get_internal_name node_id |> I.of_hstring)]
         in
-        match A.param_unrollings_of_scope analysis_param scope with
+        match
+          match site with
+          | Some (caller, pos) ->
+            A.param_unrollings_of_site analysis_param (scope_of caller, pos)
+          | None -> None
+        with
         | Some depth -> depth
-        | None -> 1
+        | None ->
+          match A.param_unrollings_of_scope analysis_param (scope_of node_id) with
+          | Some depth -> depth
+          | None -> 1
       in
 
       let reached_limit =
         match NI.Map.find_opt node_id num_unrollings with
-        | Some n -> n >= unrolling_depth node_id
+        | Some n -> n >= unrolling_depth node_id site
         | None -> false
       in
 
@@ -2737,7 +2767,11 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
         [I.string_of_ident false (NI.get_internal_name node_id |> I.of_hstring)]
       in
       let scope, suffix =
-        if N.is_recursive node && not (NI.Map.is_empty num_unrollings) then
+        (* A tag for the unrollings of a recursive function, and for the
+           instances of it entered through different call sites, which are
+           systems of their own *)
+        if N.is_recursive node
+        && (not (NI.Map.is_empty num_unrollings) || site <> None) then
           let node_num_id = get_node_num_id () in
           let rec_tag = get_rec_tag node_num_id in
           rec_tag :: base_scope, Format.sprintf "_%s" rec_tag
@@ -2823,7 +2857,7 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
         in
 
         List.fold_left 
-          (fun (accum, nu_map) { N.call_node_id } -> 
+          (fun (accum, nu_map) { N.call_node_id ; N.call_id ; N.call_pos } -> 
 
              let called_node =
                N.node_of_node_id call_node_id nodes
@@ -2836,11 +2870,28 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
                  num_unrollings
              in
 
-             let nu_map = NI.Map.add call_node_id num_unrollings'' nu_map in
+             (* The call site of the chain of the callee: the chain of this
+                node for a call within its recursive group, or this call
+                for a call entering another group *)
+             let callee_site =
+               let scc_of n =
+                 match n.N.comp_type with
+                 | N.Function { N.rec_info = Some (scc, _) } -> Some scc
+                 | _ -> None
+               in
+               match scc_of called_node with
+               | None -> None
+               | Some scc when scc_of node = Some scc -> site
+               | Some _ -> Some (node_id, call_pos)
+             in
+
+             let nu_map =
+               CallMap.add call_id (num_unrollings'', callee_site) nu_map
+             in
 
              let reached_limit =
                match NI.Map.find_opt call_node_id num_unrollings'' with
-               | Some n -> n >= unrolling_depth call_node_id + 1
+               | Some n -> n >= unrolling_depth call_node_id callee_site + 1
                | None -> false
              in
 
@@ -2848,12 +2899,12 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
                reached_limit ||
 
                (* Transition system for node created? *)
-               NodeInstanceMap.mem (call_node_id, num_unrollings'') trans_sys_defs || 
+               NodeInstanceMap.mem (call_node_id, num_unrollings'', callee_site) trans_sys_defs || 
 
                (* Node with current number of unrollings already pushed to
                   stack before this node? *)
                List.exists
-                 (fun e -> NodeInstance.equal e (call_node_id, num_unrollings''))
+                 (fun e -> NodeInstance.equal e (call_node_id, num_unrollings'', callee_site))
                  accum
 
              then 
@@ -2864,9 +2915,9 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
              else
 
                (* Push node to top of stack *)
-               (call_node_id, num_unrollings'') :: accum, nu_map)
+               (call_node_id, num_unrollings'', callee_site) :: accum, nu_map)
 
-          ([], NI.Map.empty)
+          ([], CallMap.empty)
           calls
 
       in
@@ -2895,7 +2946,7 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
             output_input_dep
             nodes
             definition_set
-            (tl' @ (node_id, num_unrollings) :: tl)
+            (tl' @ (node_id, num_unrollings, site) :: tl)
 
         (* All transitions systems of called nodes have been
            created *)
@@ -3882,6 +3933,14 @@ let rec trans_sys_of_node' options globals fun_defs top_name analysis_param
                        | None -> None)
                     (D.values outputs)
                 | _ -> [], [])
+              ?rec_cutoff_site:(
+                match site with
+                | Some (caller, pos) when free_cutoff && not is_defined ->
+                  Some
+                    ([I.string_of_ident false
+                        (NI.get_internal_name caller |> I.of_hstring)],
+                     pos)
+                | _ -> None)
               ~check_defs:(
                 if is_defined || not options.add_functional_constraints then []
                 else LustreFunDefs.blocks_of_node !check_fun_defs node_id)
@@ -4069,10 +4128,10 @@ let trans_sys_of_nodes
         [] 
         nodes
         Term.TermSet.empty
-        [(top_name, NI.Map.empty)]
+        [(top_name, NI.Map.empty, None)]
 
       (* Return the transition system of the top node *)
-      |> NodeInstanceMap.find (top_name, NI.Map.empty)
+      |> NodeInstanceMap.find (top_name, NI.Map.empty, None)
 
     (* Transition system must have been created *)
     with Not_found -> assert false

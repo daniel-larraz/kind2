@@ -330,6 +330,7 @@ let first_param_of ass _results all_nodes scope =
           A.uid = A.get_uid () ;
           A.abstraction_map = abstraction ;
           A.unrollings = Scope.Map.empty ;
+          A.site_unrollings = A.CallSiteMap.empty ;
           A.assumptions = ass }
       in
       if Scope.Map.find scope abstraction then
@@ -420,6 +421,7 @@ let refinement_of results sys result (abstraction, unrollings) =
       A.uid = A.get_uid () ;
       A.abstraction_map = abstraction ;
       A.unrollings = unrollings ;
+      A.site_unrollings = A.CallSiteMap.empty ;
       A.assumptions =
         A.assumptions_merge
           (assumptions_of_refined results

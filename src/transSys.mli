@@ -309,6 +309,7 @@ val mk_trans_sys :
   ?check_ufs:UfSymbol.t list ->
   ?rec_cutoff:Scope.t ->
   ?rec_cutoff_io:(StateVar.t list * (StateVar.t * UfSymbol.t) list) ->
+  ?rec_cutoff_site:(Scope.t * Lib.position) ->
 
   (* Name of the transition system *)
   Scope.t ->
@@ -795,11 +796,18 @@ val instantiate_term_all_levels:
   (t * Term.t list) * ((t * Term.t list) list) 
 
 
-(** The recursive functions a cutoff of which the counterexample reaches:
-    an instance of the function past its unrollings, whose outputs are left
-    unconstrained, is executed at some step of the counterexample, which may
-    therefore be spurious *)
-val cutoffs_reached : t -> (StateVar.t * Model.value list) list -> Scope.t list
+(** A cutoff of the unrolling of a recursive function: the function, and
+    the call site its chain of recursive calls was entered through, the
+    scope of the caller and the position of the call; none if the chain was
+    started by the top system itself *)
+type cutoff = Scope.t * (Scope.t * Lib.position) option
+
+val equal_cutoff : cutoff -> cutoff -> bool
+
+(** The cutoffs the counterexample reaches: an instance of a function past
+    its unrollings, whose outputs are left unconstrained, is executed at
+    some step of the counterexample, which may therefore be spurious *)
+val cutoffs_reached : t -> (StateVar.t * Model.value list) list -> cutoff list
 
 (** The recursive functions with a cutoff in the system *)
 val cutoff_functions : t -> Scope.t list
@@ -827,7 +835,7 @@ val define_check_defs :
     functional symbols, and its outputs with their functional symbols, all
     in the variables of the top system *)
 val cutoff_instances :
-  t -> (Scope.t * Term.t * StateVar.t list * (StateVar.t * UfSymbol.t) list) list
+  t -> (cutoff * Term.t * StateVar.t list * (StateVar.t * UfSymbol.t) list) list
 
 (** The recursive functions with a cutoff in the system whose systems carry
     definitions for the supervisor to evaluate their calls with, which

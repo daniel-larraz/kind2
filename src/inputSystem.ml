@@ -170,6 +170,7 @@ let maximal_abstraction_for_testgen (type s)
         A.uid = get_testgen_uid () ;
         A.abstraction_map = map ;
         A.unrollings = Scope.Map.empty ;
+        A.site_unrollings = A.CallSiteMap.empty ;
         A.assumptions = assumptions ;
       }
     )
@@ -270,6 +271,7 @@ let moxi_params (type s) (input_system : s t) =
       A.uid = A.get_uid () ;
       A.abstraction_map = Scope.Map.empty ;
       A.unrollings = Scope.Map.empty ;
+      A.site_unrollings = A.CallSiteMap.empty ;
       A.assumptions = Scope.Map.empty ;
     }
   in
@@ -300,6 +302,7 @@ let mcs_params (type s) (input_system : s t) =
       A.uid = A.get_uid () ;
       A.abstraction_map = abstraction_map ;
       A.unrollings = Scope.Map.empty ;
+      A.site_unrollings = A.CallSiteMap.empty ;
       A.assumptions = Scope.Map.empty ;
     }
   in
@@ -351,6 +354,7 @@ let contract_check_params (type s) (input_system : s t) =
           (Scope.Map.singleton scope true)
           subsystems;
       A.unrollings = Scope.Map.empty ;
+      A.site_unrollings = A.CallSiteMap.empty ;
       A.assumptions = Scope.Map.empty ;
     }, sub.S.has_contract)
   in
@@ -403,6 +407,7 @@ let interpreter_param (type s) (input_system : s t) =
     A.uid = A.get_uid () ;
     A.abstraction_map = abstraction_map ;
     A.unrollings = Scope.Map.empty ;
+    A.site_unrollings = A.CallSiteMap.empty ;
     A.assumptions = Scope.Map.empty ;
   }
 
@@ -457,7 +462,16 @@ let get_lustre_node (type s) (input_system : s t) scope =
   match input_system with
   | Lustre (main_subs, _, _) -> (
     try Some (S.find_subsystem_of_list main_subs scope).S.source
-    with Not_found -> None
+    with Not_found ->
+      (* The scope of an instance of a recursive function may carry the tag
+         of its unrolling or of its call site (see [LustreTransSys]): the
+         node is that of the scope without the tag *)
+      match scope with
+      | _ :: (_ :: _ as base) -> (
+        try Some (S.find_subsystem_of_list main_subs base).S.source
+        with Not_found -> None
+      )
+      | _ -> None
   )
   | Moxi _ -> None
   | Native _ -> None
@@ -1243,6 +1257,7 @@ let monitor_param (type s) (input_system : s t) =
     A.uid = A.get_uid () ;
     A.abstraction_map = abstraction_map ; 
     A.unrollings = Scope.Map.empty ;
+    A.site_unrollings = A.CallSiteMap.empty ;
     A.assumptions = Scope.Map.empty ;
   }
 

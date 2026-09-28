@@ -993,31 +993,49 @@ let analyze msg_setup save_results ignore_props stop_if_falsified slice_to_prop 
 
         match requested with
         | [] -> param, sys
-        | functions ->
+        | cutoffs ->
           (* A fresh uid: the symbols and state variables of a system are
              named after the uid of its analysis, and the system is built
-             again *)
+             again. A chain entered through a call site is unrolled further
+             at that site only; a chain started by the top system, at every
+             call of its function. *)
           let param' =
-            Anal.map_info (fun ({ Anal.unrollings } as info) ->
-              { info with
-                Anal.uid = Anal.get_uid () ;
-                Anal.unrollings =
-                  List.fold_left
-                    (fun unrollings f ->
-                       Scope.Map.add f (RecUnrolling.depth param f + 1) unrollings)
-                    unrollings functions }) param
+            Anal.map_info
+              (fun ({ Anal.unrollings ; Anal.site_unrollings } as info) ->
+                 let unrollings, site_unrollings =
+                   List.fold_left
+                     (fun (unrollings, site_unrollings) ((f, site) as c) ->
+                        let d = RecUnrolling.depth param c + 1 in
+                        match site with
+                        | Some site ->
+                          unrollings,
+                          Anal.CallSiteMap.add site d site_unrollings
+                        | None ->
+                          Scope.Map.add f d unrollings, site_unrollings)
+                     (unrollings, site_unrollings) cutoffs
+                 in
+                 { info with
+                   Anal.uid = Anal.get_uid () ;
+                   Anal.unrollings ;
+                   Anal.site_unrollings })
+              param
+          in
+          let pp_print_cutoff fmt ((f, site) as c) =
+            Format.fprintf fmt "%a%t: %d"
+              (KEvent.pp_print_user_node_name in_sys) f
+              (fun fmt ->
+                 match site with
+                 | None -> ()
+                 | Some (caller, pos) ->
+                   Format.fprintf fmt " called by %a at %a"
+                     (KEvent.pp_print_user_node_name in_sys) caller
+                     Lib.pp_print_line_and_column pos)
+              (RecUnrolling.depth param' c)
           in
           KEvent.log L_info
-            "@[<hov>Unrolling %a further (%a).@]"
-            (pp_print_list (KEvent.pp_print_user_node_name in_sys) ", ")
-            functions
-            (pp_print_list
-               (fun fmt f ->
-                  Format.fprintf fmt "%a: %d"
-                    (KEvent.pp_print_user_node_name in_sys) f
-                    (RecUnrolling.depth param' f))
-               ", ")
-            functions ;
+            "@[<hov>Unrolling further (%a).@]"
+            (pp_print_list pp_print_cutoff ", ")
+            cutoffs ;
           let sys', _ = ISys.trans_sys_of_analysis in_sys param' in
           TSys.transfer_results ~from:sys ~into:sys' ;
           run_engines param' sys'
