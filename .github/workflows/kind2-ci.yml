@@ -62,7 +62,15 @@ jobs:
         # Untap aws to silence Homebrew trust warnings
         # See https://github.com/actions/runner-images/issues/14232
         brew untap aws/tap || true
-        brew update
+        if [[ "${{ matrix.name }}" == "macos-x86_64" ]]; then
+          # Homebrew no longer builds bottles for macOS x86_64, so updating
+          # makes the formulae preinstalled on the image outdated, and any
+          # later install (such as setup-ocaml's darcs and mercurial) tries
+          # to rebuild them from source. Stay on the image's snapshot.
+          echo "HOMEBREW_NO_AUTO_UPDATE=1" >> "$GITHUB_ENV"
+        else
+          brew update
+        fi
 
     - name: Build Kind 2
       uses: ./.github/actions/build-kind2
