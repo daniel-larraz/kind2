@@ -47,6 +47,7 @@ let seq_map f l = R.seq (List.map f l)
 type error_kind =
   | BoundVariableInComprehension of HString.t
   | UnsupportedComprehensionPosition of string
+  | ComprehensionConstantInType of HString.t
 
 let error_message = function
   | BoundVariableInComprehension v ->
@@ -55,6 +56,9 @@ let error_message = function
     ^ "' bound by an enclosing quantifier, array comprehension or match arm"
   | UnsupportedComprehensionPosition where ->
     "Array comprehensions are not supported in " ^ where
+  | ComprehensionConstantInType c ->
+    "The constant '" ^ HString.string_of_hstring c
+    ^ "', whose definition contains an array comprehension, cannot be used in a type"
 
 type error = [
   | `LustreDesugarArrayComprehensionsError of Lib.position * error_kind
@@ -179,9 +183,16 @@ let rec lower_expr mode bound e =
   | ArrayComprehension (p, bs, body) as source -> (
     match mode with
     | Reject where -> mk_error p (UnsupportedComprehensionPosition where)
-    | Lower { node_id; ctx; _ } | LowerContract { contract_id = node_id; contract_ctx = ctx; _ } ->
+    | Lower _ | LowerContract _ ->
       let ids = List.map (fun (_, id, _) -> id) bs in
       let* body = lower_expr mode (A.SI.union bound (A.SI.of_list ids)) body in
+      (* The context after the comprehensions of the body are lowered, which
+         holds their fresh variables *)
+      let node_id, ctx = match mode with
+        | Lower st -> st.node_id, st.ctx
+        | LowerContract st -> st.contract_id, st.contract_ctx
+        | Reject _ -> assert false
+      in
       let comp = A.ArrayComprehension (p, bs, body) in
       (* The free variables of the comprehension, whose own index variables
          are bound in it *)
@@ -316,7 +327,7 @@ let lower_contract ctx contract_id (p, eqs) =
   let lower_item = function
     | A.GhostConst (A.FreeConst _) as eq -> R.ok eq
     | A.GhostConst (A.UntypedConst (_, _, e) | A.TypedConst (_, _, e, _)) as eq ->
-      let* () = reject "constant declarations" e in R.ok eq
+      let* () = reject "the ghost constants of a contract" e in R.ok eq
     | A.GhostVars (p, lhs, e) -> let* e = low e in R.ok (A.GhostVars (p, lhs, e))
     | A.Assume (p, n, s, e) -> let* e = low e in R.ok (A.Assume (p, n, s, e))
     | A.Guarantee (p, n, s, e) -> let* e = low e in R.ok (A.Guarantee (p, n, s, e))
@@ -344,13 +355,6 @@ let lower_contract ctx contract_id (p, eqs) =
   R.ok (p, List.flatten eqs)
 
 let lower_node ctx (node_id, ext, opac, nps, cctds, ctds, nlds, nis, co) =
-  let* () =
-    R.seq_ (List.map (function
-      | A.NodeConstDecl (_, (A.UntypedConst (_, _, e) | A.TypedConst (_, _, e, _))) ->
-        let* _ = lower (Reject "constant declarations") e in R.ok ()
-      | A.NodeConstDecl (_, A.FreeConst _) | A.NodeVarDecl _ -> R.ok ()
-    ) nlds)
-  in
   let ctx = Chk.add_full_node_ctx ctx node_id nps cctds ctds nlds in
   let* co = match co with
     | Some c -> let* c = lower_contract ctx node_id c in R.ok (Some c)
@@ -402,3 +406,136 @@ let desugar_array_comprehensions ctx decls =
     ) (ctx, []) decls
   in
   R.ok (ctx, List.rev decls)
+
+(* ********************************************************************** *)
+(* Constants defined by comprehensions                                    *)
+(* ********************************************************************** *)
+
+let has_comprehension e =
+  match lower (Reject "") e with Ok _ -> false | Error _ -> true
+
+(** Split the constant declarations [decls] into those defined by an
+    expression that contains a comprehension, possibly through the
+    constants of [sigma], and the others. The definitions of the former,
+    with the constants of [sigma] replaced, extend [sigma]. *)
+let split_constants sigma decl_of decls =
+  List.fold_left (fun (sigma, kept) decl ->
+    match decl_of decl with
+    | Some (id, e) ->
+      let e = AH.apply_subst_in_expr sigma e in
+      if has_comprehension e then (sigma @ [(id, e)], kept)
+      else (sigma, decl :: kept)
+    | None -> (sigma, decl :: kept)
+  ) (sigma, []) decls
+  |> fun (sigma, kept) -> sigma, List.rev kept
+
+let const_def = function
+  | A.UntypedConst (_, id, e) | A.TypedConst (_, id, e, _) -> Some (id, e)
+  | A.FreeConst _ -> None
+
+(** Fail if a type mentions a constant of [sigma] *)
+let check_type sigma pos ty =
+  match
+    List.find_opt (fun (c, _) -> A.SI.mem c (AH.vars_of_type ty)) sigma
+  with
+  | Some (c, _) -> mk_error pos (ComprehensionConstantInType c)
+  | None -> R.ok ()
+
+(** [sigma] without the identifiers [ids], which shadow its constants *)
+let unshadowed sigma ids =
+  List.filter (fun (c, _) -> not (List.exists (HString.equal c) ids)) sigma
+
+let subst_contract sigma (p, eqs) =
+  let ghost_ids = List.concat_map (function
+    | A.GhostVars (_, A.GhostVarDec (_, tis), _) -> List.map (fun (_, i, _) -> i) tis
+    | A.GhostVars (_, A.GhostArrayDef (_, (_, i, _), _), _) -> [i]
+    | A.GhostConst (A.FreeConst (_, i, _) | A.UntypedConst (_, i, _)
+                   | A.TypedConst (_, i, _, _)) -> [i]
+    | A.Mode (_, i, _, _) -> [i]
+    | _ -> []
+  ) eqs in
+  let sigma = unshadowed sigma ghost_ids in
+  let s = AH.apply_subst_in_expr sigma in
+  let s_const = function
+    | A.FreeConst _ as c -> c
+    | A.UntypedConst (p, i, e) -> A.UntypedConst (p, i, s e)
+    | A.TypedConst (p, i, e, ty) -> A.TypedConst (p, i, s e, ty)
+  in
+  (p, List.map (function
+    | A.GhostConst c -> A.GhostConst (s_const c)
+    | A.GhostVars (p, lhs, e) -> A.GhostVars (p, lhs, s e)
+    | A.Assume (p, n, b, e) -> A.Assume (p, n, b, s e)
+    | A.Guarantee (p, n, b, e) -> A.Guarantee (p, n, b, s e)
+    | A.Decreases (p, e) -> A.Decreases (p, s e)
+    | A.Mode (p, i, reqs, enss) ->
+      let si (p, n, e) = (p, n, s e) in
+      A.Mode (p, i, List.map si reqs, List.map si enss)
+    | A.ContractCall (p, i, tys, es, outs) -> A.ContractCall (p, i, tys, List.map s es, outs)
+    | A.AssumptionVars _ as eq -> eq
+  ) eqs)
+
+let subst_node sigma (node_id, ext, opac, nps, cctds, ctds, nlds, nis, co) =
+  let params =
+    List.map (fun (_, i, _, _, _) -> i) cctds @ List.map (fun (_, i, _, _) -> i) ctds
+  in
+  let sigma = unshadowed sigma params in
+  (* The local variables shadow the constants, and the local constants
+     defined by comprehensions are replaced as the global ones *)
+  let local_vars = List.filter_map (function
+    | A.NodeVarDecl (_, (_, i, _, _)) -> Some i
+    | A.NodeConstDecl _ -> None) nlds
+  in
+  let sigma = unshadowed sigma local_vars in
+  let sigma, nlds =
+    split_constants sigma
+      (function A.NodeConstDecl (_, c) -> const_def c | A.NodeVarDecl _ -> None)
+      nlds
+  in
+  let types =
+    List.map (fun (p, _, ty, _, _) -> (p, ty)) cctds
+    @ List.map (fun (p, _, ty, _) -> (p, ty)) ctds
+    @ List.filter_map (function
+      | A.NodeVarDecl (p, (_, _, ty, _)) -> Some (p, ty)
+      | A.NodeConstDecl (p, (A.FreeConst (_, _, ty) | A.TypedConst (_, _, _, ty))) -> Some (p, ty)
+      | A.NodeConstDecl (_, A.UntypedConst _) -> None) nlds
+  in
+  let* () = R.seq_ (List.map (fun (p, ty) -> check_type sigma p ty) types) in
+  let nlds = List.map (function
+    | A.NodeConstDecl (p, A.UntypedConst (p2, i, e)) ->
+      A.NodeConstDecl (p, A.UntypedConst (p2, i, AH.apply_subst_in_expr sigma e))
+    | A.NodeConstDecl (p, A.TypedConst (p2, i, e, ty)) ->
+      A.NodeConstDecl (p, A.TypedConst (p2, i, AH.apply_subst_in_expr sigma e, ty))
+    | d -> d) nlds
+  in
+  let nis = List.map (AH.apply_subst_in_node_item sigma) nis in
+  let co = Option.map (subst_contract sigma) co in
+  R.ok (node_id, ext, opac, nps, cctds, ctds, nlds, nis, co)
+
+let inline_comprehension_constants consts decls =
+  let sigma, consts =
+    split_constants []
+      (function A.ConstDecl (_, c) -> const_def c | _ -> None)
+      consts
+  in
+  let* () =
+    R.seq_ (List.map (function
+      | A.ConstDecl (s, (A.FreeConst (_, _, ty) | A.TypedConst (_, _, _, ty))) ->
+        check_type sigma s.A.start_pos ty
+      | A.TypeDecl (s, A.AliasType (_, _, _, ty)) -> check_type sigma s.A.start_pos ty
+      | _ -> R.ok ()
+    ) consts)
+  in
+  let* decls =
+    seq_map (function
+      | A.NodeDecl (s, d) -> let* d = subst_node sigma d in R.ok (A.NodeDecl (s, d))
+      | A.FuncDecl (s, d, a) -> let* d = subst_node sigma d in R.ok (A.FuncDecl (s, d, a))
+      | A.ContractNodeDecl (s, (id, ps, ins, outs, c)) ->
+        let params =
+          List.map (fun (_, i, _, _, _) -> i) ins @ List.map (fun (_, i, _, _) -> i) outs
+        in
+        let c = subst_contract (unshadowed sigma params) c in
+        R.ok (A.ContractNodeDecl (s, (id, ps, ins, outs, c)))
+      | d -> R.ok d
+    ) decls
+  in
+  R.ok (consts, decls)
