@@ -1,0 +1,102 @@
+# Is #1477 gone on Windows Server 2022?
+#
+# The stop-the-world freeze of ocaml/ocaml#15042 reproduces on Server 2025,
+# which is what windows-latest now is, and not on Server 2022. This runs the
+# test #1477 names, test-issue-127.lus [slice_on], with the engines' minor
+# heap back at 1M words -- the size at which it ran 70s, 73s and was killed
+# twice (see engineDomains.ml) -- and at the 4M words of the mitigation.
+#
+# windows-2025 at 1M is the positive control: if it does not freeze there,
+# a clean windows-2022 result says nothing.
+name: Windows 2022 freeze
+
+on:
+  push:
+    branches: [windows-2022-freeze]
+  workflow_dispatch:
+
+env:
+  Z3_VERSION: "5.1.0"
+  MATHSAT_VERSION: "5.6.17"
+
+jobs:
+  freeze:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+        heap: [1M, 4M]
+    name: ${{ matrix.os }} heap ${{ matrix.heap }}
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Revert the minor heap mitigation
+      if: matrix.heap == '1M'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sed -i 's/if Sys.win32 then 1 lsl 22 else 1 lsl 20/1 lsl 20/' src/engineDomains.ml
+        grep -n 'let engine_minor_heap_size' src/engineDomains.ml
+        grep -q 'let engine_minor_heap_size = 1 lsl 20$' src/engineDomains.ml
+
+    - name: Record the environment
+      shell: pwsh
+      run: |
+        (Get-CimInstance Win32_OperatingSystem).Caption
+        [Environment]::OSVersion.VersionString
+        Get-CimInstance Win32_Processor |
+          Select-Object Name,NumberOfCores,NumberOfLogicalProcessors | Format-List
+
+    - name: Build Kind 2
+      uses: ./.github/actions/build-kind2
+      with:
+        ocaml-version: 5.5.1
+
+    - name: Install SMT solvers
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p solver-bin
+        Z3_DIR=z3-${Z3_VERSION}-x64-win ; MS_DIR=mathsat-${MATHSAT_VERSION}-win64
+        curl -sSL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_DIR}.zip"
+        curl -sSL -o mathsat.zip "https://mathsat.fbk.eu/release/${MS_DIR}.zip"
+        unzip -q z3.zip ; unzip -q mathsat.zip
+        cp "$Z3_DIR"/bin/z3.exe "$Z3_DIR"/bin/*.dll solver-bin/
+        cp "$MS_DIR"/bin/mathsat.exe "$MS_DIR"/bin/*.dll solver-bin/
+        echo "${GITHUB_WORKSPACE}\\solver-bin" >> $GITHUB_PATH
+
+    - name: Check the solvers run
+      shell: bash
+      run: |
+        z3 --version
+        mathsat -version | head -1
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    # Five runs, because the freeze comes one to four times a minute and two
+    # runs per arm have misled before. Elapsed seconds per run is the result:
+    # ~15s is healthy, ~70s or a kill near 204s is the freeze.
+    - name: test-issue-127.lus [slice_on], five runs
+      shell: bash
+      working-directory: tests
+      run: |
+        set -u
+        for i in 1 2 3 4 5 ; do
+          start=$(date +%s.%N)
+          ./run regression/falsifiable/test-issue-127.lus -k slice_on -q -p no:cacheprovider > run-$i.txt 2>&1
+          rc=$?
+          end=$(date +%s.%N)
+          printf 'run %d: %6.1fs  pytest exit %d  %s\n' "$i" "$(awk "BEGIN{print $end - $start}")" "$rc" \
+            "$(grep -E 'passed|failed|error' run-$i.txt | tail -1)" | tee -a summary.txt
+        done
+        echo
+        cat summary.txt
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: freeze-${{ matrix.os }}-${{ matrix.heap }}
+        path: tests/*.txt
